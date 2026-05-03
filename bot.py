@@ -274,7 +274,7 @@ async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # ─── Запуск ──────────────────────────────────────────────────
 def main():
-    app = Application.builder().token(BOT_TOKEN).updater(None).build()
+app = Application.builder().token(BOT_TOKEN).build()
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -296,7 +296,7 @@ def main():
 
     app.add_handler(conv)
     print("✅ Бот запущен. Нажмите Ctrl+C для остановки.")
-    app.run_polling()
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
