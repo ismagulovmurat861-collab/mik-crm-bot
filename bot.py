@@ -1,8 +1,4 @@
 """
-Telegram-бот для сбора объявлений от собственников недвижимости в Астане.
-Установка: pip install python-telegram-bot==20.7
-Запуск: python bot.py
-"""
 
 import logging
 import json
@@ -15,32 +11,24 @@ from telegram.ext import (
 )
 
 # ─── Настройки ───────────────────────────────────────────────
-BOT_TOKEN = os.getenv("BOT_TOKEN")   # от @BotFather
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))            # ваш Telegram ID (узнать у @userinfobot)
-DB_FILE = "listings.json"                 # файл-база данных
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
+DB_FILE = "listings.json"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(_name_)
 
 # ─── Шаги диалога ────────────────────────────────────────────
 (
-    STEP_TYPE,
-    STEP_ROOMS,
-    STEP_DISTRICT,
-    STEP_ADDRESS,
-    STEP_AREA,
-    STEP_FLOOR,
-    STEP_PRICE,
-    STEP_DESCRIPTION,
-    STEP_PHOTOS,
-    STEP_CONTACT,
-    STEP_CONFIRM,
+    STEP_TYPE, STEP_ROOMS, STEP_DISTRICT, STEP_ADDRESS,
+    STEP_AREA, STEP_FLOOR, STEP_PRICE, STEP_DESCRIPTION,
+    STEP_PHOTOS, STEP_CONTACT, STEP_CONFIRM,
 ) = range(11)
 
-DISTRICTS = [
-    "Есиль", "Алматы", "Байконур", "Сарыарка",
-    "Нура", "Целиноградский", "Другой"
-]
-
+DISTRICTS = ["Есиль", "Алматы", "Байконур", "Сарыарка", "Нура", "Целиноградский", "Другой"]
 PROPERTY_TYPES = ["Квартира", "Дом", "Участок", "Коммерция"]
 ROOMS = ["Студия", "1", "2", "3", "4+"]
 
@@ -58,19 +46,16 @@ def save_db(data):
 
 
 def kb(options, cols=2):
-    """Создать клавиатуру из списка опций."""
     rows = [options[i:i+cols] for i in range(0, len(options), cols)]
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
 
-# ─── /start ──────────────────────────────────────────────────
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data.clear()
     ctx.user_data["photos"] = []
     await update.message.reply_text(
-        "🏠 *Добавить объект недвижимости в Астане*\n\n"
-        "Я задам несколько вопросов — это займёт 2 минуты.\n"
-        "Ваш объект увидят покупатели без посредников.\n\n"
+        "🏠 Добавить объект в Астане — без посредников\n\n"
+        "Отвечу на несколько вопросов — займёт 2 минуты.\n\n"
         "Выберите тип объекта:",
         parse_mode="Markdown",
         reply_markup=kb(PROPERTY_TYPES)
@@ -83,10 +68,9 @@ async def step_type(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "Квартира":
         await update.message.reply_text("Сколько комнат?", reply_markup=kb(ROOMS))
         return STEP_ROOMS
-    else:
-        ctx.user_data["rooms"] = "—"
-        await update.message.reply_text("Выберите район:", reply_markup=kb(DISTRICTS))
-        return STEP_DISTRICT
+    ctx.user_data["rooms"] = "—"
+    await update.message.reply_text("Выберите район:", reply_markup=kb(DISTRICTS))
+    return STEP_DISTRICT
 
 
 async def step_rooms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -112,7 +96,7 @@ async def step_address(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def step_area(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["area"] = update.message.text
-    await update.message.reply_text("Этаж / всего этажей, например: 5/9\n(или напишите «—» если не применимо)")
+    await update.message.reply_text("Этаж / всего этажей, например: 5/9\n(или «—» если не применимо)")
     return STEP_FLOOR
 
 
@@ -124,10 +108,7 @@ async def step_floor(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def step_price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["price"] = update.message.text
-    await update.message.reply_text(
-        "Краткое описание объекта:\n"
-        "(состояние, ремонт, особенности — или напишите «—»)"
-    )
+    await update.message.reply_text("Краткое описание (состояние, ремонт — или «—»):")
     return STEP_DESCRIPTION
 
 
@@ -135,7 +116,7 @@ async def step_description(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["description"] = update.message.text
     await update.message.reply_text(
         "📸 Отправьте фото и видео объекта (до 10 штук).\n"
-        "Когда закончите — напишите *готово*.",
+        "Когда закончите — напишите готово.",
         parse_mode="Markdown"
     )
     return STEP_PHOTOS
@@ -144,27 +125,33 @@ async def step_description(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def step_photos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.message.text and update.message.text.lower() == "готово":
         await update.message.reply_text(
-            "📞 Укажите контакт для связи:\n"
-            "Нажмите кнопку или введите номер вручную.",
+            "📞 Укажите контакт для связи:",
             reply_markup=ReplyKeyboardMarkup(
                 [[KeyboardButton("📱 Поделиться номером", request_contact=True)]],
                 resize_keyboard=True, one_time_keyboard=True
             )
         )
         return STEP_CONTACT
-
     if update.message.photo:
-        photo_id = update.message.photo[-1].file_id
-        ctx.user_data["photos"].append({"type": "photo", "file_id": photo_id})
+        ctx.user_data["photos"].append({
+            "type": "photo",
+            "file_id": update.message.photo[-1].file_id
+        })
         count = len(ctx.user_data["photos"])
-        await update.message.reply_text(f"✅ Фото {count} получено. Ещё или напишите *готово*.", parse_mode="Markdown")
-
+        await update.message.reply_text(
+            f"✅ Фото {count} получено. Ещё или напишите готово.",
+            parse_mode="Markdown"
+        )
     elif update.message.video:
-        video_id = update.message.video.file_id
-        ctx.user_data["photos"].append({"type": "video", "file_id": video_id})
+        ctx.user_data["photos"].append({
+            "type": "video",
+            "file_id": update.message.video.file_id
+        })
         count = len(ctx.user_data["photos"])
-        await update.message.reply_text(f"✅ Видео {count} получено. Ещё или напишите *готово*.", parse_mode="Markdown")
-
+        await update.message.reply_text(
+            f"✅ Видео {count} получено. Ещё или напишите готово.",
+            parse_mode="Markdown"
+        )
     return STEP_PHOTOS
 
 
@@ -182,16 +169,14 @@ async def step_contact(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     d = ctx.user_data
     summary = (
-        f"📋 *Проверьте данные:*\n\n"
-        f"🏠 Тип: {d.get('type')} | {d.get('rooms', '—')} комн.\n"
-        f"📍 Район: {d.get('district')}\n"
-        f"🗺 Адрес: {d.get('address')}\n"
-        f"📐 Площадь: {d.get('area')} м²\n"
-        f"🏢 Этаж: {d.get('floor')}\n"
-        f"💰 Цена: {d.get('price')} ₸\n"
-        f"📝 Описание: {d.get('description')}\n"
+        f"📋 Проверьте данные:\n\n"
+        f"🏠 {d.get('type')} | {d.get('rooms', '—')} комн.\n"
+        f"📍 {d.get('district')}, {d.get('address')}\n"
+        f"📐 {d.get('area')} м²  |  🏢 {d.get('floor')}\n"
+        f"💰 {d.get('price')} ₸\n"
+        f"📝 {d.get('description')}\n"
         f"📸 Медиа: {len(d.get('photos', []))} шт.\n"
-        f"📞 Контакт: {phone}\n\n"
+        f"📞 {phone}\n\n"
         f"Всё верно?"
     )
     await update.message.reply_text(
@@ -205,7 +190,7 @@ async def step_contact(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def step_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if "Подтвердить" not in update.message.text:
         await update.message.reply_text(
-            "Отменено. Напишите /start чтобы начать заново.",
+            "Отменено. /start — начать заново.",
             reply_markup=ReplyKeyboardRemove()
         )
         return ConversationHandler.END
@@ -228,15 +213,16 @@ async def step_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "tg_username": d.get("tg_username"),
         "tg_id": update.message.from_user.id,
         "status": "новый",
+        "crm_status": "новый",
+        "notes": [],
     }
 
     db = load_db()
     db.append(listing)
     save_db(db)
 
-    # Уведомление риэлтору
     notify = (
-        f"🔔 *Новый объект #{listing['id']}*\n\n"
+        f"🔔 Новая заявка #{listing['id']}\n\n"
         f"🏠 {listing['type']} {listing['rooms']} комн.\n"
         f"📍 {listing['district']}, {listing['address']}\n"
         f"📐 {listing['area']} м²  |  🏢 {listing['floor']}\n"
@@ -244,23 +230,22 @@ async def step_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"📝 {listing['description']}\n"
         f"📸 Медиа: {len(listing['photos'])} шт.\n"
         f"👤 {listing['contact_name']} | {listing['contact_phone']}\n"
-        f"✈️ @{listing['tg_username']}"
+        f"✈️ @{listing['tg_username']}\n\n"
+        f"✅ Заявка добавлена в CRM"
     )
+
     try:
         await ctx.bot.send_message(ADMIN_CHAT_ID, notify, parse_mode="Markdown")
-        # Отправить медиа риэлтору
         for media in listing["photos"]:
             if media["type"] == "photo":
                 await ctx.bot.send_photo(ADMIN_CHAT_ID, media["file_id"])
             elif media["type"] == "video":
                 await ctx.bot.send_video(ADMIN_CHAT_ID, media["file_id"])
     except Exception as e:
-        logging.error(f"Ошибка отправки риэлтору: {e}")
+        logger.error(f"Ошибка уведомления: {e}")
 
     await update.message.reply_text(
-        "✅ *Объект добавлен!*\n\n"
-        "Риэлтор свяжется с вами в ближайшее время.\n"
-        "Спасибо, что обратились напрямую — без посредников!",
+        "✅ Объект добавлен!\n\nРиэлтор свяжется с вами в ближайшее время.",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardRemove()
     )
@@ -268,13 +253,18 @@ async def step_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Отменено. /start — начать заново.", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text(
+        "Отменено. /start — начать заново.",
+        reply_markup=ReplyKeyboardRemove()
+    )
     return ConversationHandler.END
 
 
-# ─── Запуск ──────────────────────────────────────────────────
 def main():
-app = Application.builder().token(BOT_TOKEN).build()
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN не задан!")
+
+    app = Application.builder().token(BOT_TOKEN).build()
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -295,9 +285,9 @@ app = Application.builder().token(BOT_TOKEN).build()
     )
 
     app.add_handler(conv)
-    print("✅ Бот запущен. Нажмите Ctrl+C для остановки.")
+    logger.info("✅ Бот запущен!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
