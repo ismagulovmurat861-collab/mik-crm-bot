@@ -16,7 +16,7 @@ from telegram.ext import (
 
 # ─── Настройки ───────────────────────────────────────────────
 BOT_TOKEN = os.getenv("BOT_TOKEN")   # от @BotFather
-ADMIN_CHAT_ID =     '6556185395'             # ваш Telegram ID (узнать у @userinfobot)
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))            # ваш Telegram ID (узнать у @userinfobot)
 DB_FILE = "listings.json"                 # файл-база данных
 
 logging.basicConfig(level=logging.INFO)
