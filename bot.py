@@ -274,7 +274,7 @@ async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # ─── Запуск ──────────────────────────────────────────────────
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).updater(None).build()
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
