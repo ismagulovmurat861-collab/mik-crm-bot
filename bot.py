@@ -1,293 +1,189 @@
-"""
-
 import logging
 import json
 import os
 from datetime import datetime
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     filters, ContextTypes, ConversationHandler
 )
 
-# ─── Настройки ───────────────────────────────────────────────
+# ===== НАСТРОЙКИ =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
-DB_FILE = "listings.json"
+ADMIN_CHAT_ID = 6556185395
+DB_FILE = "db.json"
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(_name_)
+logging.basicConfig(level=logging.INFO)
 
-# ─── Шаги диалога ────────────────────────────────────────────
-(
-    STEP_TYPE, STEP_ROOMS, STEP_DISTRICT, STEP_ADDRESS,
-    STEP_AREA, STEP_FLOOR, STEP_PRICE, STEP_DESCRIPTION,
-    STEP_PHOTOS, STEP_CONTACT, STEP_CONFIRM,
-) = range(11)
+# ===== ЭТАПЫ =====
+STEP_MENU, STEP_TYPE, STEP_DISTRICT, STEP_PRICE, STEP_PHOTOS, STEP_CONTACT = range(6)
 
-DISTRICTS = ["Есиль", "Алматы", "Байконур", "Сарыарка", "Нура", "Целиноградский", "Другой"]
-PROPERTY_TYPES = ["Квартира", "Дом", "Участок", "Коммерция"]
-ROOMS = ["Студия", "1", "2", "3", "4+"]
+PROPERTY_TYPES = ["Квартира", "Дом", "Коммерция"]
 
-
+# ===== БАЗА =====
 def load_db():
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return []
 
-
 def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-
-def kb(options, cols=2):
-    rows = [options[i:i+cols] for i in range(0, len(options), cols)]
-    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
-
-
+# ===== СТАРТ =====
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data.clear()
-    ctx.user_data["photos"] = []
+    kb = [["🚀 Продать объект", "📊 Узнать цену"]]
     await update.message.reply_text(
-        "🏠 Добавить объект в Астане — без посредников\n\n"
-        "Отвечу на несколько вопросов — займёт 2 минуты.\n\n"
-        "Выберите тип объекта:",
-        parse_mode="Markdown",
-        reply_markup=kb(PROPERTY_TYPES)
+        "🏠 Продам вашу квартиру быстрее и дороже рынка\n\n"
+        "— Есть база покупателей\n"
+        "— Без пустых показов\n\n"
+        "👇 Выберите:",
+        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
     )
+    return STEP_MENU
+
+# ===== МЕНЮ =====
+async def menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Тип объекта?", reply_markup=ReplyKeyboardMarkup([[t] for t in PROPERTY_TYPES], resize_keyboard=True))
     return STEP_TYPE
 
-
+# ===== ТИП =====
 async def step_type(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["type"] = update.message.text
-    if update.message.text == "Квартира":
-        await update.message.reply_text("Сколько комнат?", reply_markup=kb(ROOMS))
-        return STEP_ROOMS
-    ctx.user_data["rooms"] = "—"
-    await update.message.reply_text("Выберите район:", reply_markup=kb(DISTRICTS))
+    await update.message.reply_text("Район?")
     return STEP_DISTRICT
 
-
-async def step_rooms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["rooms"] = update.message.text
-    await update.message.reply_text("Выберите район:", reply_markup=kb(DISTRICTS))
-    return STEP_DISTRICT
-
-
+# ===== РАЙОН =====
 async def step_district(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["district"] = update.message.text
+
     await update.message.reply_text(
-        "Введите адрес (улица, дом, ЖК):",
-        reply_markup=ReplyKeyboardRemove()
+        "💰 Примерная цена: 30–45 млн ₸\nХотите точную оценку?"
     )
-    return STEP_ADDRESS
 
-
-async def step_address(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["address"] = update.message.text
-    await update.message.reply_text("Площадь (м²), например: 54")
-    return STEP_AREA
-
-
-async def step_area(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["area"] = update.message.text
-    await update.message.reply_text("Этаж / всего этажей, например: 5/9\n(или «—» если не применимо)")
-    return STEP_FLOOR
-
-
-async def step_floor(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["floor"] = update.message.text
-    await update.message.reply_text("Цена (₸), например: 35 000 000")
+    await update.message.reply_text("Введите вашу цену:")
     return STEP_PRICE
 
-
+# ===== ЦЕНА =====
 async def step_price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["price"] = update.message.text
-    await update.message.reply_text("Краткое описание (состояние, ремонт — или «—»):")
-    return STEP_DESCRIPTION
+    ctx.user_data["photos"] = []
 
-
-async def step_description(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["description"] = update.message.text
-    await update.message.reply_text(
-        "📸 Отправьте фото и видео объекта (до 10 штук).\n"
-        "Когда закончите — напишите готово.",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text("📸 Отправьте фото и напишите 'готово'")
     return STEP_PHOTOS
 
-
+# ===== ФОТО =====
 async def step_photos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.message.text and update.message.text.lower() == "готово":
-        await update.message.reply_text(
-            "📞 Укажите контакт для связи:",
-            reply_markup=ReplyKeyboardMarkup(
-                [[KeyboardButton("📱 Поделиться номером", request_contact=True)]],
-                resize_keyboard=True, one_time_keyboard=True
-            )
-        )
+    if update.message.text and "готово" in update.message.text.lower():
+        await update.message.reply_text("📞 Укажите контакт:")
         return STEP_CONTACT
+
     if update.message.photo:
-        ctx.user_data["photos"].append({
-            "type": "photo",
-            "file_id": update.message.photo[-1].file_id
-        })
-        count = len(ctx.user_data["photos"])
-        await update.message.reply_text(
-            f"✅ Фото {count} получено. Ещё или напишите готово.",
-            parse_mode="Markdown"
-        )
-    elif update.message.video:
-        ctx.user_data["photos"].append({
-            "type": "video",
-            "file_id": update.message.video.file_id
-        })
-        count = len(ctx.user_data["photos"])
-        await update.message.reply_text(
-            f"✅ Видео {count} получено. Ещё или напишите готово.",
-            parse_mode="Markdown"
-        )
+        ctx.user_data["photos"].append(update.message.photo[-1].file_id)
+
     return STEP_PHOTOS
 
-
+# ===== КОНТАКТ =====
 async def step_contact(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.message.contact:
-        phone = update.message.contact.phone_number
-        name = update.message.contact.first_name or ""
-    else:
-        phone = update.message.text
-        name = update.message.from_user.first_name or ""
+    ctx.user_data["contact"] = update.message.text
 
-    ctx.user_data["contact_phone"] = phone
-    ctx.user_data["contact_name"] = name
-    ctx.user_data["tg_username"] = update.message.from_user.username or "—"
-
-    d = ctx.user_data
-    summary = (
-        f"📋 Проверьте данные:\n\n"
-        f"🏠 {d.get('type')} | {d.get('rooms', '—')} комн.\n"
-        f"📍 {d.get('district')}, {d.get('address')}\n"
-        f"📐 {d.get('area')} м²  |  🏢 {d.get('floor')}\n"
-        f"💰 {d.get('price')} ₸\n"
-        f"📝 {d.get('description')}\n"
-        f"📸 Медиа: {len(d.get('photos', []))} шт.\n"
-        f"📞 {phone}\n\n"
-        f"Всё верно?"
-    )
-    await update.message.reply_text(
-        summary,
-        parse_mode="Markdown",
-        reply_markup=kb(["✅ Подтвердить", "❌ Отменить"])
-    )
-    return STEP_CONFIRM
-
-
-async def step_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if "Подтвердить" not in update.message.text:
-        await update.message.reply_text(
-            "Отменено. /start — начать заново.",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ConversationHandler.END
-
-    d = ctx.user_data
+    # сохраняем
+    db = load_db()
     listing = {
         "id": datetime.now().strftime("%Y%m%d%H%M%S"),
-        "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
-        "type": d.get("type"),
-        "rooms": d.get("rooms", "—"),
-        "district": d.get("district"),
-        "address": d.get("address"),
-        "area": d.get("area"),
-        "floor": d.get("floor"),
-        "price": d.get("price"),
-        "description": d.get("description"),
-        "photos": d.get("photos", []),
-        "contact_phone": d.get("contact_phone"),
-        "contact_name": d.get("contact_name"),
-        "tg_username": d.get("tg_username"),
-        "tg_id": update.message.from_user.id,
-        "status": "новый",
-        "crm_status": "новый",
-        "notes": [],
+        "date": datetime.now().strftime("%d.%m.%Y"),
+        "data": ctx.user_data,
+        "status": "новый"
     }
-
-    db = load_db()
     db.append(listing)
     save_db(db)
 
-    notify = (
-        f"🔔 Новая заявка #{listing['id']}\n\n"
-        f"🏠 {listing['type']} {listing['rooms']} комн.\n"
-        f"📍 {listing['district']}, {listing['address']}\n"
-        f"📐 {listing['area']} м²  |  🏢 {listing['floor']}\n"
-        f"💰 {listing['price']} ₸\n"
-        f"📝 {listing['description']}\n"
-        f"📸 Медиа: {len(listing['photos'])} шт.\n"
-        f"👤 {listing['contact_name']} | {listing['contact_phone']}\n"
-        f"✈️ @{listing['tg_username']}\n\n"
-        f"✅ Заявка добавлена в CRM"
-    )
+    # уведомление тебе
+    await ctx.bot.send_message(ADMIN_CHAT_ID, f"Новый лид:\n{listing}")
 
-    try:
-        await ctx.bot.send_message(ADMIN_CHAT_ID, notify, parse_mode="Markdown")
-        for media in listing["photos"]:
-            if media["type"] == "photo":
-                await ctx.bot.send_photo(ADMIN_CHAT_ID, media["file_id"])
-            elif media["type"] == "video":
-                await ctx.bot.send_video(ADMIN_CHAT_ID, media["file_id"])
-    except Exception as e:
-        logger.error(f"Ошибка уведомления: {e}")
-
+    # ответ клиенту
     await update.message.reply_text(
-        "✅ Объект добавлен!\n\nРиэлтор свяжется с вами в ближайшее время.",
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardRemove()
+        "🔥 Заявка принята\n"
+        "Я уже ищу покупателей\n"
+        "⏱ Напишу в течение 10–15 минут"
     )
+
+    # автоворонка
+    chat_id = update.message.chat_id
+
+    ctx.job_queue.run_once(follow_up, 3600, chat_id=chat_id, data={"step": 1})
+    ctx.job_queue.run_once(follow_up, 86400, chat_id=chat_id, data={"step": 2})
+
     return ConversationHandler.END
 
+# ===== ВОРОНКА =====
+async def follow_up(ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = ctx.job.chat_id
+    step = ctx.job.data.get("step")
 
+    if step == 1:
+        await ctx.bot.send_message(chat_id, "📊 Уже есть интерес к вашему объекту. Хотите ускорить продажу?")
+
+    elif step == 2:
+        await ctx.bot.send_message(chat_id, "🔥 Есть потенциальный покупатель. Нужно уточнить детали")
+
+# ===== CRM =====
+async def leads(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    db = load_db()
+    text = ""
+
+    for l in db[-10:]:
+        text += f"\nID:{l['id']} | {l['data'].get('type')} | {l['data'].get('price')} | {l['status']}"
+
+    await update.message.reply_text(text or "Нет заявок")
+
+async def set_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    args = ctx.args
+
+    if len(args) < 2:
+        await update.message.reply_text("Формат: /set ID статус")
+        return
+
+    db = load_db()
+
+    for l in db:
+        if l["id"] == args[0]:
+            l["status"] = args[1]
+            save_db(db)
+            await update.message.reply_text("Обновлено")
+            return
+
+    await update.message.reply_text("Не найдено")
+
+# ===== ОТМЕНА =====
 async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Отменено. /start — начать заново.",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await update.message.reply_text("Отменено")
     return ConversationHandler.END
 
-
+# ===== ЗАПУСК =====
 def main():
-    if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN не задан!")
-
     app = Application.builder().token(BOT_TOKEN).build()
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            STEP_TYPE:        [MessageHandler(filters.TEXT & ~filters.COMMAND, step_type)],
-            STEP_ROOMS:       [MessageHandler(filters.TEXT & ~filters.COMMAND, step_rooms)],
-            STEP_DISTRICT:    [MessageHandler(filters.TEXT & ~filters.COMMAND, step_district)],
-            STEP_ADDRESS:     [MessageHandler(filters.TEXT & ~filters.COMMAND, step_address)],
-            STEP_AREA:        [MessageHandler(filters.TEXT & ~filters.COMMAND, step_area)],
-            STEP_FLOOR:       [MessageHandler(filters.TEXT & ~filters.COMMAND, step_floor)],
-            STEP_PRICE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, step_price)],
-            STEP_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_description)],
-            STEP_PHOTOS:      [MessageHandler(filters.TEXT | filters.PHOTO | filters.VIDEO, step_photos)],
-            STEP_CONTACT:     [MessageHandler(filters.TEXT | filters.CONTACT, step_contact)],
-            STEP_CONFIRM:     [MessageHandler(filters.TEXT & ~filters.COMMAND, step_confirm)],
+            STEP_MENU: [MessageHandler(filters.TEXT, menu)],
+            STEP_TYPE: [MessageHandler(filters.TEXT, step_type)],
+            STEP_DISTRICT: [MessageHandler(filters.TEXT, step_district)],
+            STEP_PRICE: [MessageHandler(filters.TEXT, step_price)],
+            STEP_PHOTOS: [MessageHandler(filters.TEXT | filters.PHOTO, step_photos)],
+            STEP_CONTACT: [MessageHandler(filters.TEXT, step_contact)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     app.add_handler(conv)
-    logger.info("✅ Бот запущен!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.add_handler(CommandHandler("leads", leads))
+    app.add_handler(CommandHandler("set", set_status))
 
+    print("Бот запущен")
+    app.run_polling()
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
