@@ -2,25 +2,22 @@ import logging
 import json
 import os
 from datetime import datetime
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    filters, ContextTypes, ConversationHandler
-)
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
 
-# ===== НАСТРОЙКИ =====
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID = 6556185395
-DB_FILE = "db.json"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8258133350:AAF9QmtTm8qkAZvIOtyE5XYmmES7bq6ZxTg")
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "6556185395"))
+DB_FILE = "listings.json"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
 
-# ===== ЭТАПЫ =====
-STEP_MENU, STEP_TYPE, STEP_DISTRICT, STEP_PRICE, STEP_PHOTOS, STEP_CONTACT = range(6)
+STEP_TYPE, STEP_ROOMS, STEP_DISTRICT, STEP_ADDRESS, STEP_AREA, STEP_FLOOR, STEP_PRICE, STEP_DESCRIPTION, STEP_PHOTOS, STEP_CONTACT, STEP_CONFIRM = range(11)
 
-PROPERTY_TYPES = ["Квартира", "Дом", "Коммерция"]
+DISTRICTS = ["Есиль", "Алматы", "Байконур", "Сарыарка", "Нура", "Целиноградский", "Другой"]
+PROPERTY_TYPES = ["Квартира", "Дом", "Участок", "Коммерция"]
+ROOMS = ["Студия", "1", "2", "3", "4+"]
+CRM_STATUSES = ["🆕 Новый", "🔄 В работе", "👁️ Показ", "🤝 Переговоры", "✅ Сделка", "❌ Отказ"]
 
-# ===== БАЗА =====
 def load_db():
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r", encoding="utf-8") as f:
@@ -31,159 +28,343 @@ def save_db(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ===== СТАРТ =====
-async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    kb = [["🚀 Продать объект", "📊 Узнать цену"]]
-    await update.message.reply_text(
-        "🏠 Продам вашу квартиру быстрее и дороже рынка\n\n"
-        "— Есть база покупателей\n"
-        "— Без пустых показов\n\n"
-        "👇 Выберите:",
-        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
-    )
-    return STEP_MENU
+def kb(options, cols=2):
+    rows = [options[i:i+cols] for i in range(0, len(options), cols)]
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=True)
 
-# ===== МЕНЮ =====
-async def menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Тип объекта?", reply_markup=ReplyKeyboardMarkup([[t] for t in PROPERTY_TYPES], resize_keyboard=True))
+def is_admin(update: Update):
+    return update.effective_user.id == ADMIN_CHAT_ID
+
+# ─── ADMIN COMMANDS ───────────────────────────────────────────
+
+async def cmd_crm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 Все заявки", callback_data="list_all")],
+        [InlineKeyboardButton("🆕 Новые", callback_data="list_новый"),
+         InlineKeyboardButton("🔄 В работе", callback_data="list_в работе")],
+        [InlineKeyboardButton("👁️ Показ", callback_data="list_показ"),
+         InlineKeyboardButton("🤝 Переговоры", callback_data="list_переговоры")],
+        [InlineKeyboardButton("✅ Сделки", callback_data="list_сделка"),
+         InlineKeyboardButton("❌ Отказы", callback_data="list_отказ")],
+        [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
+    ])
+    await update.message.reply_text("🏠 MiK CRM — Панель управления\n\nВыберите раздел:", parse_mode="Markdown", reply_markup=keyboard)
+
+async def cmd_new(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    db = load_db()
+    new_listings = [l for l in db if l.get("crm_status") == "новый"]
+    if not new_listings:
+        await update.message.reply_text("✅ Новых заявок нет!")
+        return
+    await send_listings(update, new_listings, "🆕 Новые заявки")
+
+async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    db = load_db()
+    total = len(db)
+    by_status = {}
+    for l in db:
+        s = l.get("crm_status", "новый")
+        by_status[s] = by_status.get(s, 0) + 1
+    by_district = {}
+    for l in db:
+        d = l.get("district", "—")
+        by_district[d] = by_district.get(d, 0) + 1
+    text = f"📊 Статистика MiK CRM\n\n"
+    text += f"📋 Всего заявок: {total}\n\n"
+    text += "По статусам:\n"
+    for s, c in by_status.items():
+        text += f"  • {s}: {c}\n"
+    text += "\n*По районам:*\n"
+    for d, c in sorted(by_district.items(), key=lambda x: -x[1]):
+        text += f"  • {d}: {c}\n"
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+async def send_listings(update, listings, title):
+    if not listings:
+        await update.message.reply_text(f"{title}\n\nЗаявок нет.", parse_mode="Markdown")
+        return
+    text = f"{title} ({len(listings)} шт.)\n\n"
+    for i, l in enumerate(listings[-10:], 1):
+        text += f"{i}. {l.get('type','')} {l.get('rooms','')} комн. — {l.get('district','')}\n"
+        text += f"📍 {l.get('address','')}\n"
+        text += f"💰 {l.get('price','')} ₸ | 📐 {l.get('area','')} м²\n"
+        text += f"👤 {l.get('contact_name','')} | {l.get('contact_phone','')}\n"
+        text += f"📅 {l.get('date','')} | #{l.get('id','')[-6:]}\n\n"
+    if len(listings) > 10:
+        text += f"...и ещё {len(listings)-10} заявок"
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад в меню", callback_data="menu")]])
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    db = load_db()
+    data = query.data
+
+    if data == "menu":
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Все заявки", callback_data="list_all")],
+            [InlineKeyboardButton("🆕 Новые", callback_data="list_новый"),
+             InlineKeyboardButton("🔄 В работе", callback_data="list_в работе")],
+            [InlineKeyboardButton("👁️ Показ", callback_data="list_показ"),
+             InlineKeyboardButton("🤝 Переговоры", callback_data="list_переговоры")],
+            [InlineKeyboardButton("✅ Сделки", callback_data="list_сделка"),
+             InlineKeyboardButton("❌ Отказы", callback_data="list_отказ")],
+            [InlineKeyboardButton("📊 Статистика", callback_data="stats")],
+        ])
+        await query.edit_message_text("🏠 MiK CRM — Панель управления\n\nВыберите раздел:", parse_mode="Markdown", reply_markup=keyboard)
+
+    elif data == "stats":
+        total = len(db)
+        by_status = {}
+        for l in db:
+            s = l.get("crm_status", "новый")
+            by_status[s] = by_status.get(s, 0) + 1
+        by_district = {}
+        for l in db:
+            d = l.get("district", "—")
+            by_district[d] = by_district.get(d, 0) + 1
+        text = f"📊 Статистика MiK CRM\n\n"
+        text += f"📋 Всего заявок: {total}\n\n"
+        text += "По статусам:\n"
+        for s, c in by_status.items():
+            text += f"  • {s}: {c}\n"
+        text += "\n*По районам:*\n"
+        for d, c in sorted(by_district.items(), key=lambda x: -x[1]):
+            text += f"  • {d}: {c}\n"
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="menu")]])
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+    elif data.startswith("list_"):
+        status = data[5:]
+        if status == "all":
+            listings = db
+            title = "📋 Все заявки"
+        else:
+            listings = [l for l in db if l.get("crm_status") == status]
+            title = f"Заявки: {status}"
+        if not listings:
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="menu")]])
+            await query.edit_message_text(f"{title}\n\nЗаявок нет.", parse_mode="Markdown", reply_markup=keyboard)
+            return
+        text = f"{title} ({len(listings)} шт.)\n\n"
+        for i, l in enumerate(listings[-10:], 1):
+            text += f"{i}. {l.get('type','')} {l.get('rooms','')} — {l.get('district','')}\n"
+            text += f"📍 {l.get('address','')}\n"
+            text += f"💰 {l.get('price','')} ₸ | 📐 {l.get('area','')} м²\n"
+            text += f"👤 {l.get('contact_name','')} | {l.get('contact_phone','')}\n"
+            text += f"📅 {l.get('date','')} | #{l.get('id','')[-6:]}\n\n"
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data="menu")]])
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=keyboard)
+
+    elif data.startswith("status_"):
+        parts = data.split("_", 2)
+        listing_id = parts[1]
+        new_status = parts[2]
+        for l in db:
+            if l["id"] == listing_id:
+                l["crm_status"] = new_status
+                break
+        save_db(db)
+        await query.answer(f"✅ Статус изменён на: {new_status}", show_alert=True)
+
+# ─── BOT CONVERSATION ────────────────────────────────────────
+
+async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if is_admin(update):
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Открыть CRM", callback_data="menu")],
+        ])
+        await update.message.reply_text(
+            "👋 Добро пожаловать в MiK CRM!\n\n"
+            "Нажмите кнопку ниже для управления заявками\n"
+            "или используйте команды:\n"
+            "/crm — открыть панель\n"
+            "/new — новые заявки\n"
+            "/stats — статистика",
+            reply_markup=keyboard
+        )
+        return ConversationHandler.END
+    ctx.user_data.clear()
+    ctx.user_data["photos"] = []
+    await update.message.reply_text(
+        "🏠 Добавить объект в Астане — без посредников!\n\n"
+        "Отвечу на несколько вопросов — займёт 2 минуты.\n\n"
+        "Выберите тип объекта:",
+        parse_mode="Markdown",
+        reply_markup=kb(PROPERTY_TYPES)
+    )
     return STEP_TYPE
 
-# ===== ТИП =====
 async def step_type(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["type"] = update.message.text
-    await update.message.reply_text("Район?")
+    if update.message.text == "Квартира":
+        await update.message.reply_text("Сколько комнат?", reply_markup=kb(ROOMS))
+        return STEP_ROOMS
+    ctx.user_data["rooms"] = "—"
+    await update.message.reply_text("Выберите район:", reply_markup=kb(DISTRICTS))
     return STEP_DISTRICT
 
-# ===== РАЙОН =====
+async def step_rooms(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["rooms"] = update.message.text
+    await update.message.reply_text("Выберите район:", reply_markup=kb(DISTRICTS))
+    return STEP_DISTRICT
+
 async def step_district(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["district"] = update.message.text
+    await update.message.reply_text("Введите адрес (улица, дом, ЖК):", reply_markup=ReplyKeyboardRemove())
+    return STEP_ADDRESS
 
-    await update.message.reply_text(
-        "💰 Примерная цена: 30–45 млн ₸\nХотите точную оценку?"
-    )
+async def step_address(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["address"] = update.message.text
+    await update.message.reply_text("Площадь (м²), например: 65")
+    return STEP_AREA
 
-    await update.message.reply_text("Введите вашу цену:")
+async def step_area(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["area"] = update.message.text
+    await update.message.reply_text("Этаж / всего этажей, например: 5/9")
+    return STEP_FLOOR
+
+async def step_floor(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["floor"] = update.message.text
+    await update.message.reply_text("Цена (₸), например: 35 000 000")
     return STEP_PRICE
 
-# ===== ЦЕНА =====
 async def step_price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["price"] = update.message.text
-    ctx.user_data["photos"] = []
+    await update.message.reply_text("Краткое описание (или напишите —):")
+    return STEP_DESCRIPTION
 
-    await update.message.reply_text("📸 Отправьте фото и напишите 'готово'")
+async def step_description(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["description"] = update.message.text
+    await update.message.reply_text("📸 Отправьте фото/видео объекта.\nКогда закончите — напишите готово.", parse_mode="Markdown")
     return STEP_PHOTOS
 
-# ===== ФОТО =====
 async def step_photos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.message.text and "готово" in update.message.text.lower():
-        await update.message.reply_text("📞 Укажите контакт:")
+    if update.message.text and update.message.text.lower() == "готово":
+        await update.message.reply_text(
+            "📞 Укажите контакт для связи:",
+            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("📱 Поделиться номером", request_contact=True)]], resize_keyboard=True, one_time_keyboard=True)
+        )
         return STEP_CONTACT
-
     if update.message.photo:
-        ctx.user_data["photos"].append(update.message.photo[-1].file_id)
-
+        ctx.user_data["photos"].append({"type": "photo", "file_id": update.message.photo[-1].file_id})
+        await update.message.reply_text(f"✅ Фото {len(ctx.user_data['photos'])} получено. Ещё или напишите готово.", parse_mode="Markdown")
+    elif update.message.video:
+        ctx.user_data["photos"].append({"type": "video", "file_id": update.message.video.file_id})
+        await update.message.reply_text(f"✅ Видео получено. Ещё или напишите готово.", parse_mode="Markdown")
     return STEP_PHOTOS
 
-# ===== КОНТАКТ =====
 async def step_contact(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["contact"] = update.message.text
+    phone = update.message.contact.phone_number if update.message.contact else update.message.text
+    ctx.user_data["contact_phone"] = phone
+    ctx.user_data["contact_name"] = update.message.from_user.first_name or ""
+    ctx.user_data["tg_username"] = update.message.from_user.username or "—"
+    d = ctx.user_data
+    summary = (
+        f"📋 Проверьте данные:\n\n"
+        f"🏠 {d.get('type')} {d.get('rooms','—')} комн.\n"
+        f"📍 {d.get('district')}, {d.get('address')}\n"
+        f"📐 {d.get('area')} м²  |  🏢 {d.get('floor')}\n"
+        f"💰 {d.get('price')} ₸\n"
+        f"📝 {d.get('description')}\n"
+        f"📸 Медиа: {len(d.get('photos',[]))} шт.\n"
+        f"📞 {phone}\n\nВсё верно?"
+    )
+    await update.message.reply_text(summary, parse_mode="Markdown", reply_markup=kb(["✅ Подтвердить", "❌ Отменить"]))
+    return STEP_CONFIRM
 
-    # сохраняем
-    db = load_db()
+async def step_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if "Подтвердить" not in update.message.text:
+        await update.message.reply_text("Отменено. /start — начать заново.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+    d = ctx.user_data
     listing = {
         "id": datetime.now().strftime("%Y%m%d%H%M%S"),
-        "date": datetime.now().strftime("%d.%m.%Y"),
-        "data": ctx.user_data,
-        "status": "новый"
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "type": d.get("type"), "rooms": d.get("rooms","—"),
+        "district": d.get("district"), "address": d.get("address"),
+        "area": d.get("area"), "floor": d.get("floor"),
+        "price": d.get("price"), "description": d.get("description"),
+        "photos": d.get("photos",[]),
+        "contact_phone": d.get("contact_phone"),
+        "contact_name": d.get("contact_name"),
+        "tg_username": d.get("tg_username"),
+        "tg_id": update.message.from_user.id,
+        "crm_status": "новый", "notes": [],
     }
+    db = load_db()
     db.append(listing)
     save_db(db)
 
-    # уведомление тебе
-    await ctx.bot.send_message(ADMIN_CHAT_ID, f"Новый лид:\n{listing}")
-
-    # ответ клиенту
-    await update.message.reply_text(
-        "🔥 Заявка принята\n"
-        "Я уже ищу покупателей\n"
-        "⏱ Напишу в течение 10–15 минут"
+    # Уведомление риэлтору с кнопками смены статуса
+    notify = (
+        f"🔔 Новая заявка #{listing['id'][-6:]}\n\n"
+        f"🏠 {listing['type']} {listing['rooms']} комн.\n"
+        f"📍 {listing['district']}, {listing['address']}\n"
+        f"📐 {listing['area']} м²  |  🏢 {listing['floor']}\n"
+        f"💰 {listing['price']} ₸\n"
+        f"📝 {listing['description']}\n"
+        f"📸 Медиа: {len(listing['photos'])} шт.\n"
+        f"👤 {listing['contact_name']} | {listing['contact_phone']}\n"
+        f"✈️ @{listing['tg_username']}"
     )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 В работе", callback_data=f"status_{listing['id']}_в работе"),
+         InlineKeyboardButton("👁️ Показ", callback_data=f"status_{listing['id']}_показ")],
+        [InlineKeyboardButton("🤝 Переговоры", callback_data=f"status_{listing['id']}_переговоры"),
+         InlineKeyboardButton("✅ Сделка", callback_data=f"status_{listing['id']}_сделка")],
+        [InlineKeyboardButton("❌ Отказ", callback_data=f"status_{listing['id']}_отказ")],
+    ])
+    try:
+        await ctx.bot.send_message(ADMIN_CHAT_ID, notify, parse_mode="Markdown", reply_markup=keyboard)
+        for media in listing["photos"]:
+            if media["type"] == "photo":
+                await ctx.bot.send_photo(ADMIN_CHAT_ID, media["file_id"])
+            else:
+                await ctx.bot.send_video(ADMIN_CHAT_ID, media["file_id"])
+    except Exception as e:
+        logging.error(e)
 
-    # автоворонка
-    chat_id = update.message.chat_id
-
-    ctx.job_queue.run_once(follow_up, 3600, chat_id=chat_id, data={"step": 1})
-    ctx.job_queue.run_once(follow_up, 86400, chat_id=chat_id, data={"step": 2})
-
+    await update.message.reply_text("✅ Объект добавлен!\n\nРиэлтор свяжется с вами в ближайшее время.", parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# ===== ВОРОНКА =====
-async def follow_up(ctx: ContextTypes.DEFAULT_TYPE):
-    chat_id = ctx.job.chat_id
-    step = ctx.job.data.get("step")
-
-    if step == 1:
-        await ctx.bot.send_message(chat_id, "📊 Уже есть интерес к вашему объекту. Хотите ускорить продажу?")
-
-    elif step == 2:
-        await ctx.bot.send_message(chat_id, "🔥 Есть потенциальный покупатель. Нужно уточнить детали")
-
-# ===== CRM =====
-async def leads(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    db = load_db()
-    text = ""
-
-    for l in db[-10:]:
-        text += f"\nID:{l['id']} | {l['data'].get('type')} | {l['data'].get('price')} | {l['status']}"
-
-    await update.message.reply_text(text or "Нет заявок")
-
-async def set_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    args = ctx.args
-
-    if len(args) < 2:
-        await update.message.reply_text("Формат: /set ID статус")
-        return
-
-    db = load_db()
-
-    for l in db:
-        if l["id"] == args[0]:
-            l["status"] = args[1]
-            save_db(db)
-            await update.message.reply_text("Обновлено")
-            return
-
-    await update.message.reply_text("Не найдено")
-
-# ===== ОТМЕНА =====
 async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Отменено")
+    await update.message.reply_text("Отменено. /start — начать заново.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# ===== ЗАПУСК =====
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
-
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            STEP_MENU: [MessageHandler(filters.TEXT, menu)],
-            STEP_TYPE: [MessageHandler(filters.TEXT, step_type)],
-            STEP_DISTRICT: [MessageHandler(filters.TEXT, step_district)],
-            STEP_PRICE: [MessageHandler(filters.TEXT, step_price)],
-            STEP_PHOTOS: [MessageHandler(filters.TEXT | filters.PHOTO, step_photos)],
-            STEP_CONTACT: [MessageHandler(filters.TEXT, step_contact)],
+            STEP_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_type)],
+            STEP_ROOMS: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_rooms)],
+            STEP_DISTRICT: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_district)],
+            STEP_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_address)],
+            STEP_AREA: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_area)],
+            STEP_FLOOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_floor)],
+            STEP_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_price)],
+            STEP_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_description)],
+            STEP_PHOTOS: [MessageHandler(filters.ALL, step_photos)],
+            STEP_CONTACT: [MessageHandler(filters.ALL, step_contact)],
+            STEP_CONFIRM: [MessageHandler(filters.TEXT & ~filters.COMMAND, step_confirm)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-
     app.add_handler(conv)
-    app.add_handler(CommandHandler("leads", leads))
-    app.add_handler(CommandHandler("set", set_status))
+    app.add_handler(CommandHandler("crm", cmd_crm))
+    app.add_handler(CommandHandler("new", cmd_new))
+    app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    print("✅ Бот запущен!")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-    print("Бот запущен")
-    app.run_polling()
-
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
