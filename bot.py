@@ -366,5 +366,5 @@ def main():
     print("✅ Бот запущен!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
