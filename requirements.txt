@@ -1,4 +1,6 @@
-python-telegram-bot==20.7
+fastapi
+uvicorn
 openai
-gspread
-oauth2client
+sqlalchemy
+psycopg2-binary
+python-dotenv
