@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from openai import OpenAI
-from config import BOT_TOKEN, OPENAI_API_KEY
+from config import 8258133350:AAF9HyRR9kNMQNEp-ypEsaP6ZSjftUGHI7w,1rdAixG3OMZ35k6W 
 from crm import add_lead
 
 client = OpenAI(api_key=OPENAI_API_KEY)
