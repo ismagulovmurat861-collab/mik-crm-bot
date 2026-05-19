@@ -1,4 +1,12 @@
 """
+MiK Real Estate Bot — полный автомат
+✅ Парсинг krisha.kz + OLX
+✅ AI агент (отвечает клиентам)
+✅ Воронка продаж (Лид → Встреча → Сделка)
+✅ CRM + статистика
+✅ Контент завод (Telegram, Instagram, YouTube, TikTok)
+✅ Авто follow-up напоминания
+"""
 import logging, json, os, re, asyncio
 import psycopg2, psycopg2.extras, httpx
 from bs4 import BeautifulSoup
@@ -20,7 +28,7 @@ OPENAI_KEY  = os.getenv("OPENAI_API_KEY", "")
 CHANNEL_ID  = os.getenv("CHANNEL_ID", "")  # @your_channel или -100xxx
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
-log = logging.getLogger(_name_)
+log = logging.getLogger(__name__)
 ai = AsyncOpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0"}
@@ -35,7 +43,7 @@ TYPES     = ["Квартира", "Дом", "Участок", "Коммерция
 ROOMS     = ["Студия", "1", "2", "3", "4+"]
 
 # Воронка продаж
-FUNNEL = ["🆕 Лид", "📞 Контакт", "👁️ Показ", "🤝 Переговоры", "✅ Сделка", "❌ Отказ"]
+FUNNEL = ["🆕 Лид", "📞 Контакт", "👁 Показ", "🤝 Переговоры", "✅ Сделка", "❌ Отказ"]
 FUNNEL_KEYS = ["лид", "контакт", "показ", "переговоры", "сделка", "отказ"]
 
 # ══════════════════════════════════════════════════
@@ -283,7 +291,7 @@ async def run_parsers(bot):
             add_listing(listing)
             mark_parsed(item["ext_id"], item["source"])
 
-            text = (f"🔔 Новый лид от собственника\n"
+            text = (f"🔔 *Новый лид от собственника*\n"
                     f"{src_label} | {deal_label}\n\n"
                     f"🏠 {item['rooms']} комн. | 📐 {item['area']} м²\n"
                     f"📍 {item['address']}\n"
@@ -291,7 +299,7 @@ async def run_parsers(bot):
                     f"🔗 [Открыть объявление]({item['url']})")
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📞 Контакт",   callback_data=f"funnel_{lid}_контакт"),
-                 InlineKeyboardButton("👁️ Показ",     callback_data=f"funnel_{lid}_показ")],
+                 InlineKeyboardButton("👁 Показ",     callback_data=f"funnel_{lid}_показ")],
                 [InlineKeyboardButton("✅ Сделка",    callback_data=f"funnel_{lid}_сделка"),
                  InlineKeyboardButton("❌ Отказ",     callback_data=f"funnel_{lid}_отказ")],
                 [InlineKeyboardButton("✍️ Контент",   callback_data=f"content_{lid}"),
@@ -320,9 +328,9 @@ async def check_followups(bot):
             upd_date = datetime.strptime(updated, "%d.%m.%Y %H:%M")
             days_ago = (today - upd_date).days
             if days_ago >= 2:
-                stage_emoji = "📞" if l["funnel_stage"] == "контакт" else "👁️"
+                stage_emoji = "📞" if l["funnel_stage"] == "контакт" else "👁"
                 await bot.send_message(ADMIN_ID,
-                    f"⏰ Follow-up напоминание\n\n"
+                    f"⏰ *Follow-up напоминание*\n\n"
                     f"{stage_emoji} Стадия: {l['funnel_stage'].upper()}\n"
                     f"🏠 {l.get('type','')} {l.get('rooms','')} комн.\n"
                     f"📍 {l.get('address','')}\n"
@@ -352,7 +360,7 @@ def main_menu_kb():
          InlineKeyboardButton("📋 Все лиды",          callback_data="list_all")],
         [InlineKeyboardButton("🆕 Новые лиды",        callback_data="list_лид"),
          InlineKeyboardButton("📞 На контакте",       callback_data="list_контакт")],
-        [InlineKeyboardButton("👁️ Показы",            callback_data="list_показ"),
+        [InlineKeyboardButton("👁 Показы",            callback_data="list_показ"),
          InlineKeyboardButton("🤝 Переговоры",        callback_data="list_переговоры")],
         [InlineKeyboardButton("✅ Сделки",            callback_data="list_сделка"),
          InlineKeyboardButton("📊 Статистика",        callback_data="stats")],
@@ -366,7 +374,7 @@ def main_menu_kb():
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if is_admin(update):
         await update.message.reply_text(
-            "🏢 MiK Real Estate — Центр управления\n\n"
+            "🏢 *MiK Real Estate — Центр управления*\n\n"
             "Выберите раздел:",
             parse_mode="Markdown", reply_markup=main_menu_kb())
         return ConversationHandler.END
@@ -374,7 +382,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data.clear()
     ctx.user_data["photos"] = []
     await update.message.reply_text(
-        "👋 Добро пожаловать в MiK Real Estate!\n\n"
+        "👋 Добро пожаловать в *MiK Real Estate*!\n\n"
         "🏠 Недвижимость в Астане от собственников\n"
         "💰 Без комиссии агентств\n\n"
         "Чем могу помочь?",
@@ -411,9 +419,9 @@ async def handle_client(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     name = update.effective_user.first_name or "Клиент"
     try:
         await ctx.bot.send_message(ADMIN_ID,
-            f"👤 Новый клиент: {name} @{username}\n"
-            f"💬 {text[:80]}\n"
-            f"🤖 AI: {reply[:80]}",
+            f"👤 *Новый клиент:* {name} @{username}\n"
+            f"💬 _{text[:80]}_\n"
+            f"🤖 AI: _{reply[:80]}_",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("📋 Создать лид", callback_data=f"newlead_{update.effective_user.id}_{username}")
@@ -423,7 +431,7 @@ async def handle_client(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_crm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update): return
-    await update.message.reply_text("🏢 MiK Real Estate", parse_mode="Markdown", reply_markup=main_menu_kb())
+    await update.message.reply_text("🏢 *MiK Real Estate*", parse_mode="Markdown", reply_markup=main_menu_kb())
 
 async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -439,7 +447,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # ── Главное меню ──
     if d == "menu":
-        await q.edit_message_text("🏢 MiK Real Estate", parse_mode="Markdown", reply_markup=main_menu_kb())
+        await q.edit_message_text("🏢 *MiK Real Estate*", parse_mode="Markdown", reply_markup=main_menu_kb())
         return
 
     # ── Воронка продаж ──
@@ -452,15 +460,15 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         total = len(listings)
         deals = counts.get("сделка",0)
         conv  = round(deals/total*100,1) if total else 0
-        text  = "🔥 Воронка продаж MiK Real Estate\n\n"
-        arrows = ["🆕 Лид", "📞 Контакт", "👁️ Показ", "🤝 Переговоры", "✅ Сделка"]
+        text  = "🔥 *Воронка продаж MiK Real Estate*\n\n"
+        arrows = ["🆕 Лид", "📞 Контакт", "👁 Показ", "🤝 Переговоры", "✅ Сделка"]
         for i, (label, key) in enumerate(zip(arrows, FUNNEL_KEYS[:5])):
             cnt = counts.get(key, 0)
             bar = "█" * min(cnt, 20)
-            text += f"{label}: {cnt} {bar}\n"
+            text += f"{label}: *{cnt}* {bar}\n"
             if i < 4: text += "      ↓\n"
-        text += f"\n❌ Отказов: {counts.get('отказ',0)}\n"
-        text += f"\n📊 Конверсия: {conv}% ({deals} сделок из {total})"
+        text += f"\n❌ Отказов: *{counts.get('отказ',0)}*\n"
+        text += f"\n📊 Конверсия: *{conv}%* ({deals} сделок из {total})"
         await q.edit_message_text(text, parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Меню", callback_data="menu")]]))
         return
@@ -472,22 +480,22 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if status != "all":
             listings = [l for l in listings if l.get("funnel_stage") == status]
         title_map = {"all":"📋 Все лиды","лид":"🆕 Новые","контакт":"📞 Контакт",
-                     "показ":"👁️ Показы","переговоры":"🤝 Переговоры",
+                     "показ":"👁 Показы","переговоры":"🤝 Переговоры",
                      "сделка":"✅ Сделки","отказ":"❌ Отказы"}
         title = title_map.get(status, status)
         if not listings:
-            await q.edit_message_text(f"{title}\n\nПусто 🤷", parse_mode="Markdown",
+            await q.edit_message_text(f"*{title}*\n\nПусто 🤷", parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Меню", callback_data="menu")]]))
             return
         src_icon = {"manual":"✍️","krisha":"🏠","olx":"🛒"}
-        text = f"{title} ({len(listings)})\n\n"
+        text = f"*{title}* ({len(listings)})\n\n"
         for i, l in enumerate(listings[:10], 1):
             icon = src_icon.get(l.get("source","manual"),"")
-            text += (f"{i}. {icon} {l.get('type','')} {l.get('rooms','')} комн.\n"
+            text += (f"*{i}.* {icon} {l.get('type','')} {l.get('rooms','')} комн.\n"
                      f"📍 {l.get('address','')[:35]}\n"
                      f"💰 {l.get('price','')} | 📅 {l.get('date','')}\n\n")
         if len(listings) > 10:
-            text += f"...ещё {len(listings)-10}"
+            text += f"_...ещё {len(listings)-10}_"
         await q.edit_message_text(text, parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Меню", callback_data="menu")]]))
         return
@@ -506,19 +514,19 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             by_src[src] = by_src.get(src,0) + 1
         deals = by_stage.get("сделка",0)
         conv  = round(deals/total*100,1) if total else 0
-        text  = (f"📊 Статистика MiK Real Estate\n\n"
-                 f"📋 Всего лидов: {total}\n"
-                 f"✅ Сделок: {deals} (конверсия {conv}%)\n\n"
-                 f"Воронка:\n")
-        stage_labels = {"лид":"🆕","контакт":"📞","показ":"👁️",
+        text  = (f"📊 *Статистика MiK Real Estate*\n\n"
+                 f"📋 Всего лидов: *{total}*\n"
+                 f"✅ Сделок: *{deals}* (конверсия *{conv}%*)\n\n"
+                 f"*Воронка:*\n")
+        stage_labels = {"лид":"🆕","контакт":"📞","показ":"👁",
                         "переговоры":"🤝","сделка":"✅","отказ":"❌"}
         for key in FUNNEL_KEYS:
             cnt = by_stage.get(key,0)
-            text += f"  {stage_labels.get(key,'')} {key}: {cnt}\n"
+            text += f"  {stage_labels.get(key,'')} {key}: *{cnt}*\n"
         text += "\n*Источники:*\n"
         src_labels = {"manual":"✍️ Вручную","krisha":"🏠 Krisha","olx":"🛒 OLX"}
         for s,c in by_src.items():
-            text += f"  {src_labels.get(s,s)}: {c}\n"
+            text += f"  {src_labels.get(s,s)}: *{c}*\n"
         await q.edit_message_text(text, parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Меню", callback_data="menu")]]))
         return
@@ -529,7 +537,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if len(parts) == 3:
             _, lid, stage = parts
             update_listing(lid, funnel_stage=stage, crm_status=stage)
-            stage_labels = {"лид":"🆕 Лид","контакт":"📞 Контакт","показ":"👁️ Показ",
+            stage_labels = {"лид":"🆕 Лид","контакт":"📞 Контакт","показ":"👁 Показ",
                            "переговоры":"🤝 Переговоры","сделка":"✅ Сделка","отказ":"❌ Отказ"}
             await q.answer(f"✅ {stage_labels.get(stage, stage)}", show_alert=False)
         return
@@ -552,7 +560,7 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             label = f"🏠 {l.get('rooms','')}к {l.get('address','')[:25]}"
             btns.append([InlineKeyboardButton(label, callback_data=f"content_{l['id']}")])
         btns.append([InlineKeyboardButton("◀️ Меню", callback_data="menu")])
-        await q.edit_message_text("✍️ Контент завод\n\nВыбери объявление:", 
+        await q.edit_message_text("✍️ *Контент завод*\n\nВыбери объявление:", 
             parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(btns))
         return
 
@@ -567,16 +575,16 @@ async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         # Telegram
         await ctx.bot.send_message(ADMIN_ID,
-            f"📱 TELEGRAM POST\n\n{content['tg']}", parse_mode="Markdown")
+            f"📱 *TELEGRAM POST*\n\n{content['tg']}", parse_mode="Markdown")
         # Instagram
         await ctx.bot.send_message(ADMIN_ID,
-            f"📸 INSTAGRAM\n\n{content['instagram']}", parse_mode="Markdown")
+            f"📸 *INSTAGRAM*\n\n{content['instagram']}", parse_mode="Markdown")
         # YouTube
         await ctx.bot.send_message(ADMIN_ID,
-            f"▶️ YOUTUBE\n\n{content['youtube']}", parse_mode="Markdown")
+            f"▶️ *YOUTUBE*\n\n{content['youtube']}", parse_mode="Markdown")
         # TikTok
         await ctx.bot.send_message(ADMIN_ID,
-            f"🎵 TIKTOK СЦЕНАРИЙ\n\n{content['tiktok']}", parse_mode="Markdown")
+            f"🎵 *TIKTOK СЦЕНАРИЙ*\n\n{content['tiktok']}", parse_mode="Markdown")
 
         # Постим в канал если настроен
         if CHANNEL_ID:
@@ -660,7 +668,7 @@ async def step_price(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def step_desc(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["desc"] = update.message.text
     await update.message.reply_text(
-        "📸 Отправьте фото объекта.\nКогда готово — напишите готово.",
+        "📸 Отправьте фото объекта.\nКогда готово — напишите *готово*.",
         parse_mode="Markdown")
     return STEP_PHOTOS
 
@@ -673,10 +681,10 @@ async def step_photos(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return STEP_CONTACT
     if update.message.photo:
         ctx.user_data["photos"].append({"type":"photo","file_id":update.message.photo[-1].file_id})
-        await update.message.reply_text(f"✅ Фото {len(ctx.user_data['photos'])}. Ещё или готово.", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ Фото {len(ctx.user_data['photos'])}. Ещё или *готово*.", parse_mode="Markdown")
     elif update.message.video:
         ctx.user_data["photos"].append({"type":"video","file_id":update.message.video.file_id})
-        await update.message.reply_text("✅ Видео. Ещё или готово.", parse_mode="Markdown")
+        await update.message.reply_text("✅ Видео. Ещё или *готово*.", parse_mode="Markdown")
     return STEP_PHOTOS
 
 async def step_contact(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -687,7 +695,7 @@ async def step_contact(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "username": update.message.from_user.username or "—",
     })
     d = ctx.user_data
-    summary = (f"📋 Проверьте данные:\n\n"
+    summary = (f"📋 *Проверьте данные:*\n\n"
                f"🏠 {d.get('type')} {d.get('rooms','—')} комн.\n"
                f"📍 {d.get('district')}, {d.get('address')}\n"
                f"📐 {d.get('area')} м² | 🏢 {d.get('floor')}\n"
@@ -722,7 +730,7 @@ async def step_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     add_listing(listing)
 
     # Уведомление админу
-    notify = (f"🔔 Новый лид!\n\n"
+    notify = (f"🔔 *Новый лид!*\n\n"
               f"🏠 {listing['type']} {listing['rooms']} комн.\n"
               f"📍 {listing['district']}, {listing['address']}\n"
               f"📐 {listing['area']} м² | 🏢 {listing['floor']}\n"
@@ -733,7 +741,7 @@ async def step_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
               f"✈️ @{listing['tg_username']}")
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("📞 Контакт",  callback_data=f"funnel_{lid}_контакт"),
-         InlineKeyboardButton("👁️ Показ",    callback_data=f"funnel_{lid}_показ")],
+         InlineKeyboardButton("👁 Показ",    callback_data=f"funnel_{lid}_показ")],
         [InlineKeyboardButton("✅ Сделка",   callback_data=f"funnel_{lid}_сделка"),
          InlineKeyboardButton("❌ Отказ",    callback_data=f"funnel_{lid}_отказ")],
         [InlineKeyboardButton("✍️ Контент",  callback_data=f"content_{lid}")],
@@ -746,7 +754,7 @@ async def step_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception as e: log.error(e)
 
     await update.message.reply_text(
-        "✅ Объект добавлен!\n\nМы свяжемся с вами в ближайшее время 🤝",
+        "✅ *Объект добавлен!*\n\nМы свяжемся с вами в ближайшее время 🤝",
         parse_mode="Markdown", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
@@ -800,5 +808,5 @@ def main():
     print("✅ MiK Real Estate Bot запущен!")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     main()
