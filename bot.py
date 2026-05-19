@@ -57,58 +57,38 @@ def get_db():
 def init_db():
     with get_db() as conn:
         with conn.cursor() as c:
-           
-        conn.commit()
-    log.info("✅ БД инициализирована")
-
-def sql(query, params=None, fetch=None):
-    with get_db() as conn:
-        with conn.cursor() as c:
-            c.execute(query, params or ())
-            conn.commit()
-            if fetch == "all": return [dict(r) for r in c.fetchall()]
-            if fetch == "one":
-                r = c.fetchone()
-                return dict(r) if r else None
-
-dress,area,floor,price,
-            description,photos,contact_phone,contact_name,tg_username,tg_id,
-            crm_status,funnel_stage,notes,source,updated_at)
-        VALUES (%(id)s,%(date)s,%(type)s,%(rooms)s,%(district)s,%(address)s,%(area)s,
-            %(floor)s,%(price)sdef init_db():
-    with get_db() as conn:
-        with conn.cursor() as c:
             c.execute("""
-CREATE TABLE IF NOT EXISTS listings (
-    id TEXT PRIMARY KEY,
-    date TEXT,
-    type TEXT,
-    rooms TEXT,
-    district TEXT,
-    address TEXT,
-    area TEXT,
-    floor TEXT,
-    price TEXT,
-    description TEXT,
-    photos JSONB DEFAULT '[]',
-    contact_phone TEXT,
-    contact_name TEXT,
-    tg_username TEXT,
-    tg_id BIGINT,
-    crm_status TEXT DEFAULT 'лид',
-    funnel_stage TEXT DEFAULT 'лид',
-    notes TEXT DEFAULT '',
-    source TEXT DEFAULT 'manual',
-    follow_up_date TEXT DEFAULT '',
-    updated_at TEXT DEFAULT ''
-);
+                CREATE TABLE IF NOT EXISTS listings (
+                    id TEXT PRIMARY KEY,
+                    date TEXT,
+                    type TEXT,
+                    rooms TEXT,
+                    district TEXT,
+                    address TEXT,
+                    area TEXT,
+                    floor TEXT,
+                    price TEXT,
+                    description TEXT,
+                    photos JSONB DEFAULT '[]',
+                    contact_phone TEXT,
+                    contact_name TEXT,
+                    tg_username TEXT,
+                    tg_id BIGINT,
+                    crm_status TEXT DEFAULT 'лид',
+                    funnel_stage TEXT DEFAULT 'лид',
+                    notes TEXT DEFAULT '',
+                    source TEXT DEFAULT 'manual',
+                    follow_up_date TEXT DEFAULT '',
+                    updated_at TEXT DEFAULT ''
+                );
 
-CREATE TABLE IF NOT EXISTS parsed_ids (
-    external_id TEXT PRIMARY KEY,
-    source TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-"""),%(description)s,%(photos)s,%(contact_phone)s,
+                CREATE TABLE IF NOT EXISTS parsed_ids (
+                    external_id TEXT PRIMARY KEY,
+                    source TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                );
+            """)
+        conn.commit(),%(description)s,%(photos)s,%(contact_phone)s,
             %(contact_name)s,%(tg_username)s,%(tg_id)s,%(crm_status)s,%(funnel_stage)s,
             %(notes)s,%(source)s,%(updated_at)s)
         ON CONFLICT (id) DO NOTHING
