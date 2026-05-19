@@ -57,32 +57,7 @@ def get_db():
 def init_db():
     with get_db() as conn:
         with conn.cursor() as c:
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id TEXT PRIMARY KEY,
-                    date TEXT, type TEXT, rooms TEXT,
-                    district TEXT, address TEXT, area TEXT,
-                    floor TEXT, price TEXT, description TEXT,
-                    photos JSONB DEFAULT '[]',
-                    contact_phone TEXT, contact_name TEXT,
-                    tg_username TEXT, tg_id BIGINT,
-                    crm_status TEXT DEFAULT 'лид',
-                    funnel_stage TEXT DEFAULT 'лид',
-                    notes TEXT DEFAULT '',
-                    source TEXT DEFAULT 'manual',
-                    follow_up_date TEXT DEFAULT '',
-                    updated_at TEXT DEFAULT ''
-                );
-                CREATE TABLE IF NOT EXISTS parsed_ids (
-                    external_id TEXT PRIMARY KEY, source TEXT,
-                    created_at TIMESTAMP DEFAULT NOW()
-                );
-                CREATE TABLE IF NOT EXISTS ai_chats (
-                    tg_id BIGINT PRIMARY KEY,
-                    history JSONB DEFAULT '[]',
-                    updated_at TIMESTAMP DEFAULT NOW()
-                );
-            """)
+           
         conn.commit()
     log.info("✅ БД инициализирована")
 
@@ -101,7 +76,37 @@ def load_db():
 
 def add_listing(l: dict):
     sql("""
-        INSERT INTO listings (id,date,type,rooms,district,address,area,floor,price,
+        INSERT INTO listings (id,date,type,rooms,district,adc.execute("""
+CREATE TABLE IF NOT EXISTS listings (
+    id TEXT PRIMARY KEY,
+    date TEXT,
+    type TEXT,
+    rooms TEXT,
+    district TEXT,
+    address TEXT,
+    area TEXT,
+    floor TEXT,
+    price TEXT,
+    description TEXT,
+    photos JSONB DEFAULT '[]',
+    contact_phone TEXT,
+    contact_name TEXT,
+    tg_username TEXT,
+    tg_id BIGINT,
+    crm_status TEXT DEFAULT 'лид',
+    funnel_stage TEXT DEFAULT 'лид',
+    notes TEXT DEFAULT '',
+    source TEXT DEFAULT 'manual',
+    follow_up_date TEXT DEFAULT '',
+    updated_at TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS parsed_ids (
+    external_id TEXT PRIMARY KEY,
+    source TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+""")dress,area,floor,price,
             description,photos,contact_phone,contact_name,tg_username,tg_id,
             crm_status,funnel_stage,notes,source,updated_at)
         VALUES (%(id)s,%(date)s,%(type)s,%(rooms)s,%(district)s,%(address)s,%(area)s,
