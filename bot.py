@@ -45,14 +45,14 @@ ROOMS     = ["Студия", "1", "2", "3", "4+"]
 # Воронка продаж
 FUNNEL = ["🆕 Лид", "📞 Контакт", "👁 Показ", "🤝 Переговоры", "✅ Сделка", "❌ Отказ"]
 FUNNEL_KEYS = ["лид", "контакт", "показ", "переговоры", "сделка", "отказ"]
-
 # ══════════════════════════════════════════════════
 # DATABASE
 # ══════════════════════════════════════════════════
 def get_db():
     return psycopg2.connect(
         DB_URL.replace("postgres://", "postgresql://"),
-        cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor_factory=psycopg2.extras.RealDictCursor
+    )
 
 def init_db():
     with get_db() as conn:
@@ -87,8 +87,16 @@ def init_db():
                     source TEXT,
                     created_at TIMESTAMP DEFAULT NOW()
                 );
+
+                CREATE TABLE IF NOT EXISTS ai_chats (
+                    tg_id BIGINT PRIMARY KEY,
+                    history JSONB DEFAULT '[]',
+                    updated_at TIMESTAMP DEFAULT NOW()
+                );
             """)
-        conn.commit()def sql(query, params=(), fetch=None):
+        conn.commit()
+
+def sql(query, params=(), fetch=None):
     with get_db() as conn:
         with conn.cursor() as c:
             c.execute(query, params)
@@ -100,7 +108,6 @@ def init_db():
                 return c.fetchall()
 
             conn.commit()
-
 
 def add_listing(l):
     sql("""
@@ -128,7 +135,6 @@ def add_listing(l):
         "updated_at": datetime.now().strftime("%d.%m.%Y %H:%M")
     })
 
-
 def load_db():
     return sql(
         "SELECT * FROM listings ORDER BY date DESC",
@@ -138,22 +144,45 @@ def load_db():
 def update_listing(lid, **kwargs):
     kwargs["updated_at"] = datetime.now().strftime("%d.%m.%Y %H:%M")
     sets = ", ".join(f"{k}=%s" for k in kwargs)
-    sql(f"UPDATE listings SET {sets} WHERE id=%s", list(kwargs.values()) + [lid])
+    sql(
+        f"UPDATE listings SET {sets} WHERE id=%s",
+        list(kwargs.values()) + [lid]
+    )
 
 def is_parsed(eid):
-    return bool(sql("SELECT 1 FROM parsed_ids WHERE external_id=%s", (eid,), fetch="one"))
+    return bool(
+        sql(
+            "SELECT 1 FROM parsed_ids WHERE external_id=%s",
+            (eid,),
+            fetch="one"
+        )
+    )
 
 def mark_parsed(eid, src):
-    sql("INSERT INTO parsed_ids(external_id,source) VALUES(%s,%s) ON CONFLICT DO NOTHING", (eid,src))
+    sql(
+        "INSERT INTO parsed_ids(external_id,source) VALUES(%s,%s) ON CONFLICT DO NOTHING",
+        (eid, src)
+    )
 
 def get_history(tg_id):
-    r = sql("SELECT history FROM ai_chats WHERE tg_id=%s", (tg_id,), fetch="one")
+    r = sql(
+        "SELECT history FROM ai_chats WHERE tg_id=%s",
+        (tg_id,),
+        fetch="one"
+    )
     return r["history"] if r else []
 
 def save_history(tg_id, h):
-    sql("""INSERT INTO ai_chats(tg_id,history) VALUES(%s,%s)
-        ON CONFLICT(tg_id) DO UPDATE SET history=%s, updated_at=NOW()""",
-        (tg_id, json.dumps(h,ensure_ascii=False), json.dumps(h,ensure_ascii=False)))
+    sql("""
+        INSERT INTO ai_chats(tg_id,history)
+        VALUES(%s,%s)
+        ON CONFLICT(tg_id)
+        DO UPDATE SET history=%s, updated_at=NOW()
+    """, (
+        tg_id,
+        json.dumps(h, ensure_ascii=False),
+        json.dumps(h, ensure_ascii=False)
+    ))
 
 # ══════════════════════════════════════════════════
 # AI АГЕНТ
