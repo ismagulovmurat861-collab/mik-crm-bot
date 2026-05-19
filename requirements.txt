@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-openai
-sqlalchemy
+python-telegram-bot
 psycopg2-binary
-python-dotenv
+httpx
+beautifulsoup4
+openai
+apscheduler
