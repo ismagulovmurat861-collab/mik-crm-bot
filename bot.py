@@ -88,7 +88,52 @@ def init_db():
                     created_at TIMESTAMP DEFAULT NOW()
                 );
             """)
-        conn.commit()
+        conn.commit()def sql(query, params=(), fetch=None):
+    with get_db() as conn:
+        with conn.cursor() as c:
+            c.execute(query, params)
+
+            if fetch == "one":
+                return c.fetchone()
+
+            if fetch == "all":
+                return c.fetchall()
+
+            conn.commit()
+
+
+def add_listing(l):
+    sql("""
+        INSERT INTO listings (
+            id,date,type,rooms,district,address,area,floor,
+            price,description,photos,contact_phone,
+            contact_name,tg_username,tg_id,
+            crm_status,funnel_stage,notes,source,updated_at
+        )
+        VALUES (
+            %(id)s,%(date)s,%(type)s,%(rooms)s,%(district)s,
+            %(address)s,%(area)s,%(floor)s,%(price)s,
+            %(description)s,%(photos)s,%(contact_phone)s,
+            %(contact_name)s,%(tg_username)s,%(tg_id)s,
+            %(crm_status)s,%(funnel_stage)s,%(notes)s,
+            %(source)s,%(updated_at)s
+        )
+        ON CONFLICT (id) DO NOTHING
+    """, {
+        **l,
+        "photos": json.dumps(l.get("photos", []), ensure_ascii=False),
+        "notes": l.get("notes", ""),
+        "source": l.get("source", "manual"),
+        "funnel_stage": l.get("funnel_stage", "лид"),
+        "updated_at": datetime.now().strftime("%d.%m.%Y %H:%M")
+    })
+
+
+def load_db():
+    return sql(
+        "SELECT * FROM listings ORDER BY date DESC",
+        fetch="all"
+    ) or []
 
 def update_listing(lid, **kwargs):
     kwargs["updated_at"] = datetime.now().strftime("%d.%m.%Y %H:%M")
