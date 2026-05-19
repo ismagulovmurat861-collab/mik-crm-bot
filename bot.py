@@ -71,12 +71,14 @@ def sql(query, params=None, fetch=None):
                 r = c.fetchone()
                 return dict(r) if r else None
 
-def load_db():
-    return sql("SELECT * FROM listings ORDER BY date DESC", fetch="all") or []
-
-def add_listing(l: dict):
-    sql("""
-        INSERT INTO listings (id,date,type,rooms,district,adc.execute("""
+dress,area,floor,price,
+            description,photos,contact_phone,contact_name,tg_username,tg_id,
+            crm_status,funnel_stage,notes,source,updated_at)
+        VALUES (%(id)s,%(date)s,%(type)s,%(rooms)s,%(district)s,%(address)s,%(area)s,
+            %(floor)s,%(price)sdef init_db():
+    with get_db() as conn:
+        with conn.cursor() as c:
+            c.execute("""
 CREATE TABLE IF NOT EXISTS listings (
     id TEXT PRIMARY KEY,
     date TEXT,
@@ -106,11 +108,7 @@ CREATE TABLE IF NOT EXISTS parsed_ids (
     source TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
-""")dress,area,floor,price,
-            description,photos,contact_phone,contact_name,tg_username,tg_id,
-            crm_status,funnel_stage,notes,source,updated_at)
-        VALUES (%(id)s,%(date)s,%(type)s,%(rooms)s,%(district)s,%(address)s,%(area)s,
-            %(floor)s,%(price)s,%(description)s,%(photos)s,%(contact_phone)s,
+"""),%(description)s,%(photos)s,%(contact_phone)s,
             %(contact_name)s,%(tg_username)s,%(tg_id)s,%(crm_status)s,%(funnel_stage)s,
             %(notes)s,%(source)s,%(updated_at)s)
         ON CONFLICT (id) DO NOTHING
