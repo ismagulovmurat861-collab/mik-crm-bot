@@ -813,3 +813,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+init_db()
+    bot.infinity_polling()
