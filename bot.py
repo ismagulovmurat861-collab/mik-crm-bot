@@ -828,7 +828,7 @@ def main():
         .post_init(on_startup)
         .build()
     )
-    )
+    
     log.info("⏰ Парсинг каждые 30 мин | Follow-up каждые 12 часов")
 
     # Диалог подачи объявления
