@@ -12,7 +12,7 @@ import psycopg2, psycopg2.extras, httpx
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from openai import AsyncOpenAI
-from apscheduler.schedulers.backgraund import BackgraundScheduler
+from apscheduler.schedulers.background import BackgroundScheduler
 from telegram import (Update, ReplyKeyboardMarkup, ReplyKeyboardRemove,
     KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton)
 from telegram.ext import (Application, CommandHandler, MessageHandler,
