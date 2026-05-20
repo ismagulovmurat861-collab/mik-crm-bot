@@ -12,7 +12,7 @@ import psycopg2, psycopg2.extras, httpx
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from openai import AsyncOpenAI
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.schedulers.backgraund import BackgraundScheduler
 from telegram import (Update, ReplyKeyboardMarkup, ReplyKeyboardRemove,
     KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton)
 from telegram.ext import (Application, CommandHandler, MessageHandler,
@@ -817,7 +817,7 @@ def main():
     init_db()
 
     async def on_startup(application):
-        scheduler = AsyncIOScheduler(timezone="Asia/Almaty")
+        scheduler = BackgroundScheduler(timezone="Asia/Almaty")
         scheduler.add_job(run_parsers, "interval", minutes=30, args=[application.bot], id="parser")
         scheduler.add_job(check_followups, "interval", hours=12, args=[application.bot], id="followup")
         scheduler.start()
