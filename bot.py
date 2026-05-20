@@ -815,12 +815,11 @@ async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════════
 def main():
     init_db()
-    
-    scheduler = AsyncIOScheduler(timezone="Asia/Almaty")
-    scheduler.add_job(run_parsers, "interval", minutes=30, args=[app.bot], id="parser")
-    scheduler.add_job(check_followups, "interval", hours=12, args=[app.bot], id="followup")
 
     async def on_startup(application):
+        scheduler = AsyncIOScheduler(timezone="Asia/Almaty")
+        scheduler.add_job(run_parsers, "interval", minutes=30, args=[application.bot], id="parser")
+        scheduler.add_job(check_followups, "interval", hours=12, args=[application.bot], id="followup")
         scheduler.start()
 
     app = (
@@ -828,6 +827,7 @@ def main():
         .token(BOT_TOKEN)
         .post_init(on_startup)
         .build()
+    )
     )
     log.info("⏰ Парсинг каждые 30 мин | Follow-up каждые 12 часов")
 
