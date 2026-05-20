@@ -815,13 +815,20 @@ async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════════════════
 def main():
     init_db()
-    app = Application.builder().token(BOT_TOKEN).build()
-
-    # Планировщик
+    
     scheduler = AsyncIOScheduler(timezone="Asia/Almaty")
-    scheduler.add_job(run_parsers,     "interval", minutes=30,  args=[app.bot], id="parse")
-    scheduler.add_job(check_followups, "interval", hours=12,    args=[app.bot], id="followup")
-    scheduler.start()
+    scheduler.add_job(run_parsers, "interval", minutes=30, args=[app.bot], id="parser")
+    scheduler.add_job(check_followups, "interval", hours=12, args=[app.bot], id="followup")
+
+    async def on_startup(application):
+        scheduler.start()
+
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(on_startup)
+        .build()
+    )
     log.info("⏰ Парсинг каждые 30 мин | Follow-up каждые 12 часов")
 
     # Диалог подачи объявления
