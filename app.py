@@ -14,7 +14,7 @@ import os
 app = FastAPI(title="MiK AI CRM")
 
 client = OpenAI(
-    api_key=os.getenv("1rdAixG3OMZ35k6W")
+    api_key=os.getenv("OPEN_AI_KEY")
 )
 
 # =====================================================
