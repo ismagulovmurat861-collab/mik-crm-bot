@@ -2,7 +2,7 @@ python-telegram-bot
 psycopg2-binary
 httpx
 beautifulsoup4
-openai
+anthropic
 apscheduler
 uvicorn
 fastapi
