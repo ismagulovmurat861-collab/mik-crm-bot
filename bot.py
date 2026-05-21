@@ -831,6 +831,7 @@ def main():
         scheduler.add_job(run_parsers, "interval", hours=12, args=[application.bot], id="parser")
         scheduler.add_job(check_followups, "interval", hours=12, args=[application.bot], id="followup")
         scheduler.start()
+        await start_web()
 
     app = (
         Application.builder()
