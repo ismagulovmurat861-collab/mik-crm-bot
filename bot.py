@@ -17,7 +17,17 @@ from telegram import (Update, ReplyKeyboardMarkup, ReplyKeyboardRemove,
     KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton)
 from telegram.ext import (Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes, ConversationHandler)
+from aiohttp import web
+async def health(request):
+    return web.Response(text="OK")
 
+async def start_web():
+    app = web.Application()
+    app.router.add_get("/", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", 10000)))
+    await site.start()
 # ══════════════════════════════════════════════════
 # CONFIG
 # ══════════════════════════════════════════════════
