@@ -34,7 +34,7 @@ async def start_web():
 BOT_TOKEN   = os.getenv("BOT_TOKEN")
 ADMIN_ID    = int(os.getenv("ADMIN_CHAT_ID", "0"))
 DB_URL      = os.getenv("DATABASE_URL", "")
-ANTHROPIC_KEY = os.getenv(ANTHROPIC_API_KEY", "")
+ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CHANNEL_ID  = os.getenv("CHANNEL_ID", "")  # @your_channel или -100xxx
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
