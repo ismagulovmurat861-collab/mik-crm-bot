@@ -7,3 +7,4 @@ apscheduler
 uvicorn
 fastapi
 sqlalchemy
+aiohttp
