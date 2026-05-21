@@ -11,7 +11,7 @@ import logging, json, os, re, asyncio
 import psycopg2, psycopg2.extras, httpx
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-from openai import AsyncOpenAI
+import anthropic
 from apscheduler.schedulers.background import BackgroundScheduler
 from telegram import (Update, ReplyKeyboardMarkup, ReplyKeyboardRemove,
     KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton)
@@ -34,12 +34,12 @@ async def start_web():
 BOT_TOKEN   = os.getenv("BOT_TOKEN")
 ADMIN_ID    = int(os.getenv("ADMIN_CHAT_ID", "0"))
 DB_URL      = os.getenv("DATABASE_URL", "")
-OPENAI_KEY  = os.getenv("OPENAI_API_KEY", "")
+ANTHROPIC_KEY = os.getenv(ANTHROPIC_API_KEY", "")
 CHANNEL_ID  = os.getenv("CHANNEL_ID", "")  # @your_channel или -100xxx
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
-ai = AsyncOpenAI(api_key=OPENAI_KEY) if OPENAI_KEY else None
+ai = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0"}
 
