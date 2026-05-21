@@ -217,16 +217,12 @@ async def ai_reply(tg_id: int, text: str) -> str:
     history.append({"role": "user", "content": text})
     if len(history) > 12: history = history[-12:]
     try:
-        r = ai.messages.create(
+   r = ai.messages.create(
     model="claude-haiku-4-5-20251001",
     system=AGENT_SYSTEM,
     messages=history,
     max_tokens=400)
 reply = r.content[0].text
-        history.append({"role":"assistant","content":reply})
-        save_history(tg_id, history)
-        return reply
-    except Exception as e:
         log.error(f"AI error: {e}")
         return "Извините, попробуйте чуть позже. Или напишите напрямую: +77058060781"
 
