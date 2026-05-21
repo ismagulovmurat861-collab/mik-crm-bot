@@ -317,7 +317,7 @@ async def parse_olx() -> list:
 
 async def run_parsers(bot):
     log.info("⏰ Парсинг...")
-    all_items = (await parse_krisha()) + (await parse_olx())
+    all_items = ((await parse_krisha()) + (await parse_olx()))[:8]
     new = 0
     for item in all_items:
         try:
@@ -818,7 +818,7 @@ def main():
 
     async def on_startup(application):
         scheduler = BackgroundScheduler(timezone="Asia/Almaty")
-        scheduler.add_job(run_parsers, "interval", minutes=30, args=[application.bot], id="parser")
+        scheduler.add_job(run_parsers, "interval", hours=12, args=[application.bot], id="parser")
         scheduler.add_job(check_followups, "interval", hours=12, args=[application.bot], id="followup")
         scheduler.start()
 
@@ -829,7 +829,7 @@ def main():
         .build()
     )
     
-    log.info("⏰ Парсинг каждые 30 мин | Follow-up каждые 12 часов")
+    log.info("⏰ Парсинг каждые 12 часов| Follow-up каждые 12 часов")
 
     # Диалог подачи объявления
     conv = ConversationHandler(
