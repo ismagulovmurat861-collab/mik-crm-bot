@@ -216,16 +216,19 @@ async def ai_reply(tg_id: int, text: str) -> str:
     history = get_history(tg_id)
     history.append({"role": "user", "content": text})
     if len(history) > 12: history = history[-12:]
-    try:
-   r = ai.messages.create(
-    model="claude-haiku-4-5-20251001",
-    system=AGENT_SYSTEM,
-    messages=history,
-    max_tokens=400)
-reply = r.content[0].text
-        log.error(f"AI error: {e}")
-        return "Извините, попробуйте чуть позже. Или напишите напрямую: +77058060781"
-
+try:
+            r = ai.messages.create(
+                model="claude-haiku-4-5-20251001",
+                system=AGENT_SYSTEM,
+                messages=history,
+                max_tokens=400)
+            reply = r.content[0].text
+            history.append({"role":"assistant","content":reply})
+            save_history(tg_id, history)
+            return reply
+        except Exception as e:
+            log.error(f"AI error: {e}")
+            return "Извините, попробуйте чуть позже. Или напишите напрямую: +77058060781"
 async def gen_content(listing: dict) -> dict:
     """Генерирует контент для всех платформ."""
     info = (f"Объект: {listing.get('type','Квартира')} {listing.get('rooms','')} комн.\n"
