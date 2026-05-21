@@ -216,8 +216,8 @@ async def ai_reply(tg_id: int, text: str) -> str:
     history = get_history(tg_id)
     history.append({"role": "user", "content": text})
     if len(history) > 12: history = history[-12:]
-        try:
-                r = ai.messages.create(
+try:
+            r = ai.messages.create(
                 model="claude-haiku-4-5-20251001",
                 system=AGENT_SYSTEM,
                 messages=history,
