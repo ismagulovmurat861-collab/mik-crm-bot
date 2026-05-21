@@ -227,7 +227,7 @@ async def ai_reply(tg_id: int, text: str) -> str:
         return reply
     except Exception as e:
         log.error(f"AI error: {e}")
-        return "Извините, попробуйте чуть позже. Или напишите напрямую: +7..."
+        return "Извините, попробуйте чуть позже. Или напишите напрямую: +77058060781"
 
 async def gen_content(listing: dict) -> dict:
     """Генерирует контент для всех платформ."""
@@ -268,8 +268,8 @@ async def parse_krisha() -> list:
     results = []
     async with httpx.AsyncClient(headers=HEADERS, timeout=30, follow_redirects=True) as c:
         for deal, url in [
-            ("rent", "https://krisha.kz/arenda/kvartiry/astana/?das[who]=1"),
-            ("sale", "https://krisha.kz/prodazha/kvartiry/astana/?das[who]=1"),
+            ("rent", "https://krisha.kz/arenda/kvartiry/astana/"),
+            ("sale", "https://krisha.kz/prodazha/kvartiry/astana/"),
         ]:
             try:
                 soup = BeautifulSoup((await c.get(url)).text, "html.parser")
@@ -442,7 +442,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Добро пожаловать в *MiK Real Estate*!\n\n"
         "🏠 Недвижимость в Астане от собственников\n"
-        "💰 Без комиссии агентств\n\n"
+        "💰 Лучшие предложения рынка\n\n"
         "Чем могу помочь?",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardMarkup([
