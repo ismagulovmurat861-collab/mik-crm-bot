@@ -1,6 +1,6 @@
 fastapi==0.110.0
 uvicorn==0.28.0
-google-genai==0.1.1
+google-genai
 gspread==6.0.2
 google-auth==2.29.0
 python-telegram-bot==20.8
