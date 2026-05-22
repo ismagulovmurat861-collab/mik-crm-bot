@@ -9,11 +9,10 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import gspread
 from google.oauth2.service_account import Credentials
-import google.generativeai as genai          # ← Исправленный импорт
+import google.generativeai as genai
 import requests
 from bs4 import BeautifulSoup
 
-# ===================== НАСТРОЙКИ =====================
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
 
@@ -23,156 +22,125 @@ SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-DAILY_LIMIT = 8
+DAILY_LIMIT = 15
 DAILY_LIMIT_CACHE = {}
 PARSED_CACHE = set()
 
-# ===================== FASTAPI =====================
 api_app = FastAPI()
 
 @api_app.get("/")
 def read_root():
-    return {"status": "MiK CRM Bot v2.3 — Работает"}
+    return {"status": "Debug Mode Active"}
 
-# ===================== GEMINI =====================
 genai.configure(api_key=GEMINI_KEY)
 
-# ===================== GOOGLE SHEETS =====================
 def get_sheet(sheet_name="baza"):
     try:
         creds_dict = json.loads(GOOGLE_CREDS_JSON)
         creds = Credentials.from_service_account_info(creds_dict)
         client = gspread.authorize(creds)
-        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(sheet_name)
-        log.info(f"✅ Подключено к вкладке: {sheet_name}")
-        return sheet
+        return client.open_by_key(SPREADSHEET_ID).worksheet(sheet_name)
     except Exception as e:
-        log.error(f"❌ Ошибка Google Sheets: {e}")
+        log.error(f"Google Sheets Error: {e}")
         return None
 
-# ===================== ИИ =====================
-async def generate_content(title: str, price: str):
-    try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content(
-            f"Объект: {title}. Цена: {price}. Создай продающий контент для Reels."
-        )
-        # Простая обработка
-        text = response.text
-        hook = text.split('\n')[0] if '\n' in text else "🔥 Горячее предложение!"
-        sub = text.split('\n')[-1] if '\n' in text else f"{title} — {price}"
-        return {"hook": hook, "sub": sub}
-    except Exception as e:
-        log.error(f"Gemini ошибка: {e}")
-        return {"hook": "🔥 Отличный вариант от хозяина!", "sub": f"{title} — {price}"}
-
-# ===================== ПАРСЕР =====================
+# ===================== УПРОЩЁННЫЙ ПАРСЕР =====================
 async def parse_krisha():
+    log.info("🚀 Старт парсинга Krisha.kz")
     try:
-        log.info("🔍 Запуск парсинга Krisha.kz...")
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         url = "https://krisha.kz/prodazha/kvartiry/astana/?page=1"
         
-        resp = requests.get(url, headers=headers, timeout=20)
+        resp = requests.get(url, headers=headers, timeout=25)
         log.info(f"Статус ответа: {resp.status_code}")
 
         soup = BeautifulSoup(resp.text, 'html.parser')
         cards = soup.find_all('div', class_='a-card')
 
-        log.info(f"Найдено карточек: {len(cards)}")
+        log.info(f"Всего карточек на странице: {len(cards)}")
 
-        for card in cards[:15]:
+        for card in cards[:20]:   # берём больше для теста
             try:
                 link = card.find('a', href=True)
-                if not link:
+                if not link: 
                     continue
-                    
+
                 title = link.get_text(strip=True)
                 price_tag = card.find('div', class_='price')
-                price = price_tag.get_text(strip=True) if price_tag else "Цена по запросу"
+                price = price_tag.get_text(strip=True) if price_tag else ""
+
+                log.info(f"Проверяем объект: {title[:60]}... | Цена: {price}")
+
                 full_url = "https://krisha.kz" + link['href']
                 obj_id = link['href'].split('/')[-1]
 
                 if obj_id in PARSED_CACHE:
                     continue
 
-                log.info(f"✅ Найден новый объект: {title[:60]}...")
+                # Очень мягкая фильтрация для теста
+                if "аренда" in title.lower() or "сдам" in title.lower():
+                    continue
+
+                PARSED_CACHE.add(obj_id)
+                log.info(f"✅ ВЫБРАН объект: {title[:70]}")
                 return {
                     "id": obj_id,
                     "title": title,
                     "price": price,
                     "url": full_url
                 }
-            except:
+            except Exception as e:
+                log.warning(f"Ошибка при обработке карточки: {e}")
                 continue
+
+        log.info("Подходящих объектов не найдено на этой странице")
     except Exception as e:
-        log.error(f"Ошибка парсера: {e}")
+        log.error(f"Критическая ошибка парсера: {e}")
     return None
 
-# ===================== ОСНОВНАЯ ЗАДАЧА =====================
+# ===================== ОСНОВНАЯ ФУНКЦИЯ =====================
 async def auto_production_job(bot):
-    log.info("=== Запуск auto_production_job ===")
+    log.info("=== ЗАПУСК auto_production_job ===")
     
     today = dt.date.today().strftime("%Y-%m-%d")
     if today not in DAILY_LIMIT_CACHE:
         DAILY_LIMIT_CACHE[today] = 0
 
     if DAILY_LIMIT_CACHE[today] >= DAILY_LIMIT:
-        log.info("Дневной лимит достигнут")
+        log.info("Лимит на сегодня исчерпан")
         return
 
     obj = await parse_krisha()
     if not obj:
-        log.info("Новых объектов не найдено")
+        log.info("Ничего не найдено в этот раз")
         return
 
-    PARSED_CACHE.add(obj["id"])
-    content = await generate_content(obj["title"], obj["price"])
-
     now_str = dt.datetime.now().strftime("%d.%m.%Y %H:%M")
 
-    # Запись в baza
-    sheet_baza = get_sheet("baza")
-    if sheet_baza:
+    sheet = get_sheet("baza")
+    if sheet:
         try:
-            row = [
-                now_str, "Krisha.kz", obj["title"], obj["price"], "₸", 
-                obj["url"], "Астана", "", "", "", "", "", content['hook'], "Новый"
-            ]
-            sheet_baza.append_row(row)
-            log.info("✅ Успешно записано в baza")
+            row = [now_str, "Krisha.kz", obj["title"], obj["price"], "₸", obj["url"], 
+                   "Астана", "", "", "", "", "", "Новый объект от бота", "Новый"]
+            sheet.append_row(row)
+            log.info("🎉 УСПЕШНО ЗАПИСАНО В БАЗУ!")
         except Exception as e:
-            log.error(f"Ошибка записи в baza: {e}")
+            log.error(f"Ошибка записи в таблицу: {e}")
 
     DAILY_LIMIT_CACHE[today] += 1
-    log.info(f"Обработано объектов сегодня: {DAILY_LIMIT_CACHE[today]}/{DAILY_LIMIT}")
-
-# ===================== ЛИДЫ =====================
-async def handle_lead(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    username = update.message.from_user.username or update.message.from_user.first_name
-    now_str = dt.datetime.now().strftime("%d.%m.%Y %H:%M")
-
-    sheet_leads = get_sheet("leads")
-    if sheet_leads:
-        row = [now_str, f"@{username}", "", "Telegram", text, "", "", "", "", "Новый"]
-        sheet_leads.append_row(row)
-
-    await update.message.reply_text("Спасибо! Записал ваш запрос.")
-    await context.bot.send_message(ADMIN_ID, f"Новый лид от @{username}\n{text}")
 
 # ===================== ЗАПУСК =====================
 async def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     scheduler = AsyncIOScheduler(timezone="Asia/Almaty")
-    scheduler.add_job(auto_production_job, "interval", minutes=25, args=[app.bot])
+    scheduler.add_job(auto_production_job, "interval", minutes=10, args=[app.bot])  # 10 минут для теста
     scheduler.start()
 
-    log.info("🤖 MiK CRM Bot v2.3 успешно запущен")
+    log.info("🤖 Bot запущен с максимальным логированием")
 
-    app.add_handler(CommandHandler("start", lambda u, c: u.message.reply_text("Здравствуйте! Я ИИ-помощник MiK Real Estate.")))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_lead))
+    app.add_handler(CommandHandler("start", lambda u, c: u.message.reply_text("Бот работает. Ждём объекты...")))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: u.message.reply_text("Записал.")))
 
     await app.initialize()
     await app.start()
