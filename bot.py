@@ -181,7 +181,8 @@ async def auto_production_job(bot):
     
     # 1. Загружаем чистый объект в первую вкладку таблицы
     save_object_to_sheet(now_str, "Парсер (Крыша)", title, price, phone, "Хозяин", "Проверить документы")
-    
+    DAILY_LIMIT_CACHE[today_date] += 1
+    log.info(f"✅ Объект добавлен. Всего за сегодня: {DAILY_LIMIT_CACHE[today_date]}/8")
     # 2. Загружаем полный развернутый сценарий во вторую вкладку таблицы
     full_scenario = f"ХУК: {text_data['hook']}\nТекст для Reels: Обзор квартиры {title} за {price}. Отличный ремонт, документы готовы. Звоните!"
     save_content_to_sheet(now_str, f"{title} ({price})", "YouTube Shorts / TikTok", full_scenario)
