@@ -2,6 +2,7 @@ import os
 import logging
 import asyncio
 import datetime as dt
+import threading
 from fastapi import FastAPI
 from google import genai
 from google.genai import types
@@ -16,31 +17,72 @@ from PIL import Image as PILImage, ImageDraw, ImageFont
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
 
-# Чтение переменных окружения из Render
+# Чтение переменных окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_CHAT_ID", "0"))
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-# Глобальные кэши (чтобы не было каши в таблице и лимит строго работал)
 DAILY_LIMIT_CACHE = {}
 PARSED_CACHE = set()
 
-# Промпты для ИИ
 AGENT_SYSTEM = "Ты — ИИ-брокер компании MiK Real Estate в Астане. Твоя цель — вежливо и профессионально помогать клиентам."
-CONTENT_FACTORY_SYSTEM = """Ты — креативный продюсер Reels/TikTok. Твоя задача — выдать мощный заголовок и субтитры.
-Ответь СТРОГО в формате JSON без лишнего текста и без кавычек markdown:
-{"hook": "ЖЕСТКИЙ_ХУК", "sub": "ГЛАВНОЕ_ПРЕИМУЩЕСТВО"}"""
+CONTENT_FACTORY_SYSTEM = """Ты — креативный продюсер недвижимости в Астаной. Твоя задача — проанализировать параметры объекта и выдать JSON.
+Выбери строго категорию из списка: квартиры, дома, коттеджи, земля.
+Определи район Астаны (например: Есиль, Нура, Алматы, Сарыарка, Байконур). Если не указан, напиши "Не указан".
+Придумай мощный хук для соцсетей.
 
-# Создаем веб-сервер, чтобы Render не усыплял бота
+Ответь СТРОГО в формате JSON без markdown:
+{"category": "категория", "district": "район", "hook": "хук", "sub": "преимущество"}"""
+
 api_app = FastAPI()
 
 @api_app.get("/")
 def read_root():
-    return {"status": "MiK Production Factory is running online"}
+    return {"status": "MiK Умный Контент-Завод запущен!"}
 
-# СБОРКА ВИДЕО И НАЛОЖЕНИЕ ТЕКСТА
+# УМНАЯ СОРТИРОВКА В GOOGLE ТАБЛИЦУ
+async def save_object_to_sheet(date_str, source, title, price, phone, district="Не указан", category="квартиры"):
+    try:
+        import json
+        creds_dict = json.loads(GOOGLE_CREDS_JSON)
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        
+        # Бот автоматически открывает нужную вкладку (квартиры, дома, земля, clients и т.д.)
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(category.lower())
+        
+        if category == "clients":
+            sheet.append_row([date_str, source, title, price, phone])
+        else:
+            # Для объектов добавляем колонку района
+            sheet.append_row([date_str, source, district, title, price, phone])
+            
+        log.info(f"✅ Данные успешно отправлены во вкладку [{category}] | Район: {district}")
+    except Exception as e:
+        log.error(f"❌ Ошибка Google Таблиц во вкладке {category}: {e}")
+
+# ЗАПРОС К GEMINI ДЛЯ АНАЛИЗА И ХУКОВ
+async def analyze_object_with_ai(title, price):
+    try:
+        client = genai.Client(api_key=GEMINI_KEY)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=f"Объект: {title}, Цена: {price}. Сделай анализ объекта.",
+            config=types.GenerateContentConfig(
+                system_instruction=CONTENT_FACTORY_SYSTEM,
+                response_mime_type="application/json"
+            )
+        )
+        import json
+        return json.loads(response.text.strip())
+    except Exception as e:
+        log.error(f"Ошибка Gemini ИИ при анализе: {e}")
+        return {"category": "квартиры", "district": "Не указан", "hook": "Горячее предложение!", "sub": f"{title}"}
+
+# ФУНКЦИЯ СБОРКИ ВИДЕО
 def create_auto_video(image_paths, hook_text, sub_text, output_path="result.mp4"):
     try:
         processed_images = []
@@ -51,12 +93,11 @@ def create_auto_video(image_paths, hook_text, sub_text, output_path="result.mp4"
                 offset = ((1080 - img.width) // 2, (1920 - img.height) // 2)
                 background.paste(img, offset)
                 
-                # Текст накладываем только на первые два кадра для удержания внимания
                 if i < 2:
                     draw = ImageDraw.Draw(background)
                     try:
-                        font_hook = ImageFont.load_default(size=60)
-                        font_sub = ImageFont.load_default(size=40)
+                        font_hook = ImageFont.load_default(size=55)
+                        font_sub = ImageFont.load_default(size=35)
                     except:
                         font_hook = ImageFont.load_default()
                         font_sub = ImageFont.load_default()
@@ -68,90 +109,56 @@ def create_auto_video(image_paths, hook_text, sub_text, output_path="result.mp4"
                 background.save(frame_path, "JPEG")
                 processed_images.append(frame_path)
         
-        # Симулируем генерацию готового видеофайла
         if processed_images:
             os.rename(processed_images[0], output_path)
             return output_path
     except Exception as e:
-        log.error(f"Ошибка при сборке видео: {e}")
+        log.error(f"Ошибка сборки видео: {e}")
     return None
 
-# ПОДКЛЮЧЕНИЕ GOOGLE ТАБЛИЦЫ
-async def save_object_to_sheet(date_str, source, title, price, phone):
-    try:
-        import json
-        creds_dict = json.loads(GOOGLE_CREDS_JSON)
-        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet = client.open_by_key(SPREADSHEET_ID).worksheet("baza")
-        sheet.append_row([date_str, source, title, price, phone])
-        log.info("Данные успешно добавлены в Google Таблицу!")
-    except Exception as e:
-        log.error(f"Ошибка Google Таблиц: {e}")
-
-# ИИ ГЕНЕРАЦИЯ СЦЕНАРИЕВ ЧЕРЕЗ GEMINI
-async def get_ai_titles(title, price):
-    try:
-        client = genai.Client(api_key=GEMINI_KEY)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=f"Объект: {title}, Цена: {price}. Придумай хук для Reels.",
-            config=types.GenerateContentConfig(
-                system_instruction=CONTENT_FACTORY_SYSTEM,
-                response_mime_type="application/json"
-            )
-        )
-        import json
-        return json.loads(response.text.strip())
-    except Exception as e:
-        log.error(f"Ошибка Gemini ИИ: {e}")
-        return {"hook": "Горячая продажа!", "sub": f"{title} в Астане"}
-
-# ПАРСЕР И АВТОМАТИЧЕСКИЙ КОНТЕНТ-ЗАВОД
+# АВТОМАТИЧЕСКИЙ ОПРОС И КОНТЕНТ-ЗАВОД
 async def auto_production_job(bot):
-    log.info("🔍 Парсер запущен. Проверяем площадки...")
-    
+    log.info("🔍 Парсер проверяет новые объявления...")
     today_date = dt.date.today().strftime("%Y-%m-%d")
     
-    # Инициализируем день в кэше
     if today_date not in DAILY_LIMIT_CACHE:
         DAILY_LIMIT_CACHE[today_date] = 0
         
-    # ЖЕСТКИЙ ЛИМИТ: Проверяем, не набралось ли уже 8 объектов за сегодня
     if DAILY_LIMIT_CACHE[today_date] >= 8:
-        log.info(f"🚫 Лимит в 8 объектов на сегодня ({today_date}) исчерпан. Пропускаем сбор данных.")
+        log.info(f"🚫 Лимит в 8 объектов на сегодня ({today_date}) достигнут.")
         return
 
-    # Симуляция парсинга уникального ID объявления
     demo_id = f"parsed_{dt.datetime.now().strftime('%H%M%S')}"
     if demo_id in PARSED_CACHE: 
         return
     PARSED_CACHE.add(demo_id)
     
-    title = "2-комнатная квартира, ЖК Времена года"
-    price = "29 000 000 ₸"
-    phone = "+7702888XX"
+    # Имитируем парсинг (здесь ИИ определит, что это коттедж в Есильском районе)
+    title = "Коттедж 5 комнат, 300 м², район Есиль, ЖК Лесная поляна"
+    price = "85 000 000 ₸"
+    phone = "+7701555XX"
     now_str = dt.datetime.now().strftime("%d.%m.%Y %H:%M")
     
-    # Создаем временные картинки для видео-ролика
+    # Отдаем объект ИИ на сканирование категории и района
+    ai_data = await analyze_object_with_ai(title, price)
+    
+    # Временные кадры для видео
     local_images = []
-    for color, name in [((180,40,40), "t1.jpg"), ((40,180,40), "t2.jpg")]:
+    for color, name in [((20,20,50), "v1.jpg"), ((30,50,30), "v2.jpg")]:
         img = PILImage.new('RGB', (800, 600), color)
         img.save(name)
         local_images.append(name)
         
-    # Запрашиваем у Gemini ИИ цепляющие заголовки
-    text_data = await get_ai_titles(title, price)
+    # Сохраняем строго в определенную ИИ категорию и записываем район
+    await save_object_to_sheet(
+        now_str, "Парсер (Крыша)", title, price, phone, 
+        district=ai_data.get('district', 'Не указан'), 
+        category=ai_data.get('category', 'квартиры')
+    )
     
-    # Сохраняем объект в первую вкладку таблицы "baza"
-    await save_object_to_sheet(now_str, "Парсер (Крыша)", title, price, phone)
+    video_file = create_auto_video(local_images, ai_data['hook'], ai_data['sub'])
     
-    # Собираем Reels видео
-    video_file = create_auto_video(local_images, text_data['hook'], text_data['sub'])
-    
-    # Отправляем отчет и видео риелтору в личку
-    caption = f"🤖 **Контент-Завод MiK Real Estate**\n\n📍 Найдена квартира от хозяина!\n🏠 {title}\n💰 Цена: {price}\n📞 Тел: {phone}\n\n🔥 ИИ сгенерировал хук:\n`{text_data['hook']}`"
+    caption = f"🤖 **Умный Парсер MiK**\n\n🗂 Категория: #{ai_data.get('category')}\n📍 Район: {ai_data.get('district')}\n🏠 {title}\n💰 Цена: {price}\n📞 Тел: {phone}\n\n🔥 Хук для Reels:\n`{ai_data['hook']}`"
     
     try:
         if video_file and os.path.exists(video_file):
@@ -160,21 +167,16 @@ async def auto_production_job(bot):
         else:
             await bot.send_message(chat_id=ADMIN_ID, text=caption, parse_mode="Markdown")
     except Exception as e:
-        log.error(f"Не удалось отправить видео в телеграм: {e}")
+        log.error(f"Ошибка отправки отчета в телеграм: {e}")
 
-    # Увеличиваем счетчик обработанных объектов за день
     DAILY_LIMIT_CACHE[today_date] += 1
-    log.info(f"✅ Объект успешно добавлен. Всего за сегодня: {DAILY_LIMIT_CACHE[today_date]}/8")
 
-# РАБОТА С КЛИЕНТАМИ ЧЕРЕЗ ТЕЛЕГРАМ
+# ОБРАБОТКА МЕССЕДЖЕЙ КЛИЕНТОВ
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     chat_id = update.message.chat_id
     username = update.message.from_user.username or "Покупатель"
     
-    log.info(f"Сообщение от пользователя {username}: {user_text}")
-    
-    # Подключаем Gemini для ответа клиенту в стиле ИИ-брокера
     try:
         client = genai.Client(api_key=GEMINI_KEY)
         response = client.models.generate_content(
@@ -184,26 +186,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        log.error(f"Ошибка ИИ при ответе клиенту: {e}")
-        reply_text = "Спасибо за обращение! Наш брокер свяжется с вами в ближайшее время."
+        log.error(f"Ошибка ИИ: {e}")
+        reply_text = "Здравствуйте! Принял ваш запрос, скоро свяжусь с вами."
         
     await update.message.reply_text(reply_text)
     
-    # Записываем заявку клиента во вторую вкладку Google Таблицы (если настроена)
     now_str = dt.datetime.now().strftime("%d.%m.%Y %H:%M")
-    await save_object_to_sheet(now_str, f"Чат-бот (@{username})", user_text, "Клиент", f"ID: {chat_id}")
-    
-    # Уведомляем тебя в личку о новом клиенте
-    await context.bot.send_message(ADMIN_ID, f"🔥 **Новый клиент в системе!**\n👤 Юзер: @{username}\n💬 Текст: {user_text}")
+    # Клиентов отправляем на вкладку "clients"
+    await save_object_to_sheet(now_str, f"Чат-бот (@{username})", user_text, "Клиент", f"ID: {chat_id}", category="clients")
+    await context.bot.send_message(ADMIN_ID, f"🔥 **Новый лид!**\n👤 Юзер: @{username}\n💬 Текст: {user_text}")
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Здравствуйте! Я ваш персональный ИИ-ассистент по недвижимости в Астане. Чем могу помочь?")
+    await update.message.reply_text("Приветствую! Я ИИ-ассистент агентства недвижимости MiK. Напишите, что вы ищете в Астане?")
 
-# ИНИЦИАЛИЗАЦИЯ И СОВМЕСТНЫЙ ЗАПУСК
-async def run_bot_and_web():
+# СТАБИЛЬНЫЙ МНОГОПОТОЧНЫЙ ЗАПУСК
+def main():
+    # Запускаем FastAPI веб-сервер в отдельном фоновом потоке
+    def run_uvicorn():
+        port = int(os.getenv("PORT", 10000))
+        import uvicorn
+        uvicorn.run(api_app, host="0.0.0.0", port=port)
+        
+    srv_thread = threading.Thread(target=run_uvicorn, daemon=True)
+    srv_thread.start()
+    
+    log.info("🚀 Запуск Телеграм-модуля и планировщика...")
+    
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Таймер парсера и монтажера (каждые 30 минут)
     scheduler = AsyncIOScheduler(timezone="Asia/Almaty")
     scheduler.add_job(auto_production_job, "interval", minutes=30, args=[app.bot])
     scheduler.start()
@@ -211,18 +221,8 @@ async def run_bot_and_web():
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    log.info("🤖 Телеграм-модуль успешно запущен.")
-
-def main():
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_bot_and_web())
-    
-    import uvicorn
-    port = int(os.getenv("PORT", 10000))
-    uvicorn.run(api_app, host="0.0.0.0", port=port)
+    # Запускаем бесконечный цикл Телеграм-бота (основной поток)
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
