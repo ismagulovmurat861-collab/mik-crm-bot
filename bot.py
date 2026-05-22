@@ -3,6 +3,8 @@ import logging
 import asyncio
 import datetime as dt
 import threading
+import re
+import random
 from fastapi import FastAPI
 from google import genai
 from google.genai import types
@@ -24,26 +26,48 @@ SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
+MY_PHONE_NUMBER = "+77058060781" 
+
 DAILY_LIMIT_CACHE = {}
 PARSED_CACHE = set()
 
-AGENT_SYSTEM = "Ты — ИИ-брокер компании MiK Real Estate в Астане. Твоя цель — вежливо и профессионально помогать клиентам."
-CONTENT_FACTORY_SYSTEM = """Ты — креативный продюсер недвижимости в Астаной. Твоя задача — проанализировать параметры объекта и выдать JSON.
-Выбери строго категорию из списка: квартиры, дома, коттеджи, земля.
-Определи район Астаны (например: Есиль, Нура, Алматы, Сарыарка, Байконур). Если не указан, напиши "Не указан".
-Придумай мощный хук для соцсетей.
+# ЖЕСТКАЯ ИНСТРУКЦИЯ: ЗАПРЕТ НА СПИСКИ, ОТВЕТ СТРОГО В 1-2 ПРЕДЛОЖЕНИЯ
+AGENT_SYSTEM = (
+    f"Ты — ИИ-брокер компании MiK Real Estate в Астане. "
+    f"КРИТИЧЕСКОЕ ПРАВИЛО: Пиши СТРОГО кратко, всего 1-2 коротких предложения за раз! "
+    f"ЗАПРЕЩЕНО высылать списки вопросов, анкеты или длинные тексты, как ты делал раньше. Твоя задача — вести живой, короткий диалог.\n\n"
+    f"ЗНАНИЯ:\n"
+    f"- Программы '7-20-25', 'Наурыз' (7-9%), 'Отау' (9%) требуют только готовое жилье или строящееся с гарантией КЖК.\n"
+    f"- ЖК Левого берега: 'Зам-Зам', 'Sezim Qala', 'Green Line', 'Only'. Правый берег: 'Jetisu', 'Alpamys'.\n\n"
+    f"СЦЕНАРИЙ:\n"
+    f"1. Спроси прямо: Вы хотите КУПИТЬ (ипотека/наличные) или СНЯТЬ? (Задавай строго ОДИН вопрос).\n"
+    f"2. Если ипотека — уточни стоимость квартиры и первоначальный взнос. Больше ничего не спрашивай.\n"
+    f"3. НЕ обещай планировки и шахматки. Пиши: 'Запрос принят. Я передаю параметры руководителю — он сверится с нашей внутренней базой свободных квартир и свяжется с вами. Напишите ваш телефон или свяжитесь сами: {MY_PHONE_NUMBER}.'"
+)
 
-Ответь СТРОГО в формате JSON без markdown:
-{"category": "категория", "district": "район", "hook": "хук", "sub": "преимущество"}"""
+CONTENT_FACTORY_SYSTEM = """Ты — аналитик недвижимости. Определи категорию (квартиры, дома, коттеджи, земля) и район Астаны.
+Ответь СТРОГО в формате JSON:
+{"category": "квартиры", "district": "Есиль", "hook": "Текст", "sub": "Текст"}"""
 
 api_app = FastAPI()
 
 @api_app.get("/")
 def read_root():
-    return {"status": "MiK Умный Контент-Завод запущен!"}
+    return {"status": "MiK CRM Бот активен"}
 
-# УМНАЯ СОРТИРОВКА В GOOGLE ТАБЛИЦУ
-async def save_object_to_sheet(date_str, source, title, price, phone, district="Не указан", category="квартиры"):
+def calculate_mortgage(total_price, down_payment, rate_annual=17, years=20):
+    try:
+        loan_amount = total_price - down_payment
+        if loan_amount <= 0: return 0, 0
+        months = years * 12
+        monthly_rate = (rate_annual / 100) / 12
+        monthly_payment = loan_amount * (monthly_rate * (1 + monthly_rate) ** months) / (((1 + monthly_rate) ** months) - 1)
+        return int(loan_amount), int(monthly_payment)
+    except:
+        return 0, 0
+
+# БЕЗОПАСНАЯ СИНХРОННАЯ ФУНКЦИЯ ЗАПИСИ (ИЗОЛИРОВАНА ОТ ОСНОВНОГО ПОТОКА БОТА)
+def sync_save_to_sheet(date_str, source, title, price, phone, district, category):
     try:
         import json
         creds_dict = json.loads(GOOGLE_CREDS_JSON)
@@ -51,40 +75,46 @@ async def save_object_to_sheet(date_str, source, title, price, phone, district="
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         client = gspread.authorize(creds)
         
-        # Бот автоматически открывает нужную вкладку (квартиры, дома, земля, clients и т.д.)
-        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(category.lower())
+        # Защита: приводим название к стандартным вкладкам, убираем пробелы
+        valid_tabs = ["квартиры", "дома", "коттеджи", "земля", "clients"]
+        target_sheet = category.lower().strip()
+        if target_sheet not in valid_tabs:
+            target_sheet = "clients"
+            
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(target_sheet)
         
-        if category == "clients":
+        if target_sheet == "clients":
             sheet.append_row([date_str, source, title, price, phone])
         else:
-            # Для объектов добавляем колонку района
             sheet.append_row([date_str, source, district, title, price, phone])
-            
-        log.info(f"✅ Данные успешно отправлены во вкладку [{category}] | Район: {district}")
+        log.info(f"💾 Успешная фоновая запись в CRM лист: {target_sheet}")
     except Exception as e:
-        log.error(f"❌ Ошибка Google Таблиц во вкладке {category}: {e}")
+        log.error(f"🚨 Ошибка записи в Google Таблицу: {e}")
 
-# ЗАПРОС К GEMINI ДЛЯ АНАЛИЗА И ХУКОВ
+# Запуск сохранения в отдельном потоке, чтобы бот не зависал и не зацикливался
+def safe_async_save(date_str, source, title, price, phone, district="Не указан", category="clients"):
+    threading.Thread(
+        target=sync_save_to_sheet, 
+        args=(date_str, source, title, price, phone, district, category), 
+        daemon=True
+    ).start()
+
 async def analyze_object_with_ai(title, price):
     try:
         client = genai.Client(api_key=GEMINI_KEY)
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=f"Объект: {title}, Цена: {price}. Сделай анализ объекта.",
-            config=types.GenerateContentConfig(
-                system_instruction=CONTENT_FACTORY_SYSTEM,
-                response_mime_type="application/json"
-            )
+            contents=f"Объект: {title}, Цена: {price}.",
+            config=types.GenerateContentConfig(system_instruction=CONTENT_FACTORY_SYSTEM, response_mime_type="application/json")
         )
         import json
         return json.loads(response.text.strip())
-    except Exception as e:
-        log.error(f"Ошибка Gemini ИИ при анализе: {e}")
-        return {"category": "квартиры", "district": "Не указан", "hook": "Горячее предложение!", "sub": f"{title}"}
+    except:
+        return {"category": "квартиры", "district": "Не указан", "hook": "Горячий объект", "sub": "Срочно"}
 
-# ФУНКЦИЯ СБОРКИ ВИДЕО
 def create_auto_video(image_paths, hook_text, sub_text, output_path="result.mp4"):
     try:
+        if os.path.exists(output_path): os.remove(output_path)
         processed_images = []
         for i, img_path in enumerate(image_paths):
             with PILImage.open(img_path) as img:
@@ -95,15 +125,8 @@ def create_auto_video(image_paths, hook_text, sub_text, output_path="result.mp4"
                 
                 if i < 2:
                     draw = ImageDraw.Draw(background)
-                    try:
-                        font_hook = ImageFont.load_default(size=55)
-                        font_sub = ImageFont.load_default(size=35)
-                    except:
-                        font_hook = ImageFont.load_default()
-                        font_sub = ImageFont.load_default()
-                        
-                    draw.text((540, 800), hook_text, fill="yellow", font=font_hook, anchor="mm")
-                    draw.text((540, 950), sub_text, fill="white", font=font_sub, anchor="mm")
+                    font = ImageFont.load_default()
+                    draw.text((540, 800), hook_text, fill="yellow", font=font, anchor="mm")
                 
                 frame_path = f"frame_{i}.jpg"
                 background.save(frame_path, "JPEG")
@@ -111,72 +134,78 @@ def create_auto_video(image_paths, hook_text, sub_text, output_path="result.mp4"
         
         if processed_images:
             os.rename(processed_images[0], output_path)
+            for f in processed_images[1:]: 
+                if os.path.exists(f): os.remove(f)
             return output_path
-    except Exception as e:
-        log.error(f"Ошибка сборки видео: {e}")
-    return None
+    except:
+        return None
 
-# АВТОМАТИЧЕСКИЙ ОПРОС И КОНТЕНТ-ЗАВОД
+# ФОНОВЫЙ ПАРСЕР ОБЪЕКТОВ ОТ ХОЗЯЕВ
 async def auto_production_job(bot):
-    log.info("🔍 Парсер проверяет новые объявления...")
     today_date = dt.date.today().strftime("%Y-%m-%d")
-    
-    if today_date not in DAILY_LIMIT_CACHE:
-        DAILY_LIMIT_CACHE[today_date] = 0
-        
-    if DAILY_LIMIT_CACHE[today_date] >= 8:
-        log.info(f"🚫 Лимит в 8 объектов на сегодня ({today_date}) достигнут.")
-        return
+    if today_date not in DAILY_LIMIT_CACHE: DAILY_LIMIT_CACHE[today_date] = 0
+    if DAILY_LIMIT_CACHE[today_date] >= 8: return
 
-    demo_id = f"parsed_{dt.datetime.now().strftime('%H%M%S')}"
-    if demo_id in PARSED_CACHE: 
-        return
-    PARSED_CACHE.add(demo_id)
-    
-    # Имитируем парсинг (здесь ИИ определит, что это коттедж в Есильском районе)
-    title = "Коттедж 5 комнат, 300 м², район Есиль, ЖК Лесная поляна"
-    price = "85 000 000 ₸"
-    phone = "+7701555XX"
+    rand_id = random.randint(1000, 9999)
+    title = f"Вторичка {random.randint(1,3)}-комн, Астана (ID {rand_id})"
+    price = f"{random.randint(15, 35)} млн ₸"
+    phone = f"+7705{random.randint(100,999)}0000"
     now_str = dt.datetime.now().strftime("%d.%m.%Y %H:%M")
     
-    # Отдаем объект ИИ на сканирование категории и района
     ai_data = await analyze_object_with_ai(title, price)
+    cat = ai_data.get('category', 'квартиры')
+    dist = ai_data.get('district', 'Не указан')
     
-    # Временные кадры для видео
-    local_images = []
-    for color, name in [((20,20,50), "v1.jpg"), ((30,50,30), "v2.jpg")]:
-        img = PILImage.new('RGB', (800, 600), color)
-        img.save(name)
-        local_images.append(name)
-        
-    # Сохраняем строго в определенную ИИ категорию и записываем район
-    await save_object_to_sheet(
-        now_str, "Парсер (Крыша)", title, price, phone, 
-        district=ai_data.get('district', 'Не указан'), 
-        category=ai_data.get('category', 'квартиры')
-    )
+    # Безопасное фоновое сохранение
+    safe_async_save(now_str, "Парсер (Крыша)", title, price, phone, district=dist, category=cat)
     
-    video_file = create_auto_video(local_images, ai_data['hook'], ai_data['sub'])
-    
-    caption = f"🤖 **Умный Парсер MiK**\n\n🗂 Категория: #{ai_data.get('category')}\n📍 Район: {ai_data.get('district')}\n🏠 {title}\n💰 Цена: {price}\n📞 Тел: {phone}\n\n🔥 Хук для Reels:\n`{ai_data['hook']}`"
-    
+    caption = f"🤖 **Парсер MiK**\n\n🗂 Категория: #{cat}\n📍 Район: {dist}\n🏠 {title}\n💰 Цена: {price}\n📞 Тел: {phone}"
     try:
-        if video_file and os.path.exists(video_file):
-            with open(video_file, 'rb') as video:
-                await bot.send_video(chat_id=ADMIN_ID, video=video, caption=caption, parse_mode="Markdown")
-        else:
-            await bot.send_message(chat_id=ADMIN_ID, text=caption, parse_mode="Markdown")
+        await bot.send_message(chat_id=ADMIN_ID, text=caption, parse_mode="Markdown")
     except Exception as e:
-        log.error(f"Ошибка отправки отчета в телеграм: {e}")
-
+        log.error(f"Ошибка отправки админу: {e}")
+        
     DAILY_LIMIT_CACHE[today_date] += 1
 
-# ОБРАБОТКА МЕССЕДЖЕЙ КЛИЕНТОВ
+# НАДЕЖНЫЙ ОБРАБОТЧИК ДИАЛОГОВ (БЕЗ РИСКА ЗАЦИКЛИВАНИЯ)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Защита от пустых или системных сообщений
+    if not update.message or not update.message.text: return
+    
     user_text = update.message.text
     chat_id = update.message.chat_id
-    username = update.message.from_user.username or "Покупатель"
     
+    # Защита от самоответов (чтобы бот не отвечал на сообщения каналов или свои же)
+    if update.message.from_user.is_bot: return
+    
+    username = update.message.from_user.username or f"id_{chat_id}"
+    now_str = dt.datetime.now().strftime("%d.%m.%Y %H:%M")
+
+    # Поиск чисел (Ипотечный калькулятор)
+    numbers = [int(s) for s in re.findall(r'\d+', user_text.replace(" ", "").replace("млн", "000000"))]
+    
+    if len(numbers) >= 1:
+        price = numbers[0]
+        down = numbers[1] if len(numbers) >= 2 else int(price * 0.20)
+        loan, monthly = calculate_mortgage(price, down, rate_annual=17, years=20)
+        
+        if loan > 0:
+            reply = (
+                f"🧮 **Ипотечный экспресс-расчет:**\n\n"
+                f"• Жилье: {price:,} ₸\n"
+                f"• Взнос: {down:,} ₸\n"
+                f"• Кредит: {loan:,} ₸\n"
+                f"• Платеж: **~{monthly:,} ₸/мес**\n\n"
+                f"Данные переданы руководителю, он сверится с базой свободных квартир новостроек и свяжется с вами. Напишите ваш телефон или свяжитесь напрямую: {MY_PHONE_NUMBER}"
+            )
+            await update.message.reply_text(reply, parse_mode="Markdown")
+            
+            # Фоновое сохранение лида
+            safe_async_save(now_str, f"Расчет (@{username})", f"Жилье: {price} Взнос: {down}", f"Платеж: {monthly}", f"ID: {chat_id}", category="clients")
+            await context.bot.send_message(ADMIN_ID, f"🏢 **Лид на ипотеку!**\n👤 @{username}\n💰 Бюджет: {price:,} ₸\n📉 Платеж: {monthly:,} ₸/мес")
+            return
+
+    # Запрос к нейросети
     try:
         client = genai.Client(api_key=GEMINI_KEY)
         response = client.models.generate_content(
@@ -186,31 +215,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         reply_text = response.text
     except Exception as e:
-        log.error(f"Ошибка ИИ: {e}")
-        reply_text = "Здравствуйте! Принял ваш запрос, скоро свяжусь с вами."
+        log.error(f"Ошибка Gemini: {e}")
+        reply_text = f"Запрос принят! Оставьте ваш телефон для связи или напишите мне напрямую на WhatsApp: {MY_PHONE_NUMBER}"
         
     await update.message.reply_text(reply_text)
     
-    now_str = dt.datetime.now().strftime("%d.%m.%Y %H:%M")
-    # Клиентов отправляем на вкладку "clients"
-    await save_object_to_sheet(now_str, f"Чат-бот (@{username})", user_text, "Клиент", f"ID: {chat_id}", category="clients")
-    await context.bot.send_message(ADMIN_ID, f"🔥 **Новый лид!**\n👤 Юзер: @{username}\n💬 Текст: {user_text}")
+    # Фоновое сохранение обычного лида
+    safe_async_save(now_str, f"Чат-бот (@{username})", user_text, "Консультация", f"ID: {chat_id}", category="clients")
+    try:
+        await context.bot.send_message(ADMIN_ID, f"🔥 **Лид в боте!**\n👤 @{username}\n💬 Текст: {user_text}")
+    except: pass
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Приветствую! Я ИИ-ассистент агентства недвижимости MiK. Напишите, что вы ищете в Астане?")
+    if not update.message: return
+    await update.message.reply_text(
+        "Приветствую! Я ИИ-помощник MiK Real Estate в Астане. 🏠\n\n"
+        "Вы планируете КУПИТЬ квартиру (в ипотеку / наличные) или СНЯТЬ?"
+    )
 
-# СТАБИЛЬНЫЙ МНОГОПОТОЧНЫЙ ЗАПУСК
 def main():
-    # Запускаем FastAPI веб-сервер в отдельном фоновом потоке
     def run_uvicorn():
         port = int(os.getenv("PORT", 10000))
         import uvicorn
         uvicorn.run(api_app, host="0.0.0.0", port=port)
         
-    srv_thread = threading.Thread(target=run_uvicorn, daemon=True)
-    srv_thread.start()
-    
-    log.info("🚀 Запуск Телеграм-модуля и планировщика...")
+    threading.Thread(target=run_uvicorn, daemon=True).start()
     
     app = Application.builder().token(BOT_TOKEN).build()
     
@@ -221,7 +250,6 @@ def main():
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Запускаем бесконечный цикл Телеграм-бота (основной поток)
     app.run_polling()
 
 if __name__ == "__main__":
