@@ -7,4 +7,3 @@ google-auth
 requests
 beautifulsoup4
 apscheduler
-Pillow
