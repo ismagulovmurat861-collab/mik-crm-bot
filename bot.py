@@ -143,9 +143,25 @@ PARSED_CACHE = set()
 async def auto_production_job(bot):
     log.info("🔍 Парсер запущен. Проверяем площадки...")
     
-    # Сюда зашивается логика BeautifulSoup для Крыши / OLX
-    demo_id = f"parsed_{datetime.now().strftime('%H%M')}"
-    if demo_id in PARSED_CACHE: return
+    # --- БЛОК ЛИМИТА (8 объектов в день) ---
+    import datetime as dt
+    today_date = dt.date.today().strftime("%Y-%m-%d")
+    
+    if 'DAILY_LIMIT_CACHE' not in globals():
+        global DAILY_LIMIT_CACHE
+        DAILY_LIMIT_CACHE = {}
+        
+    if today_date not in DAILY_LIMIT_CACHE:
+        DAILY_LIMIT_CACHE[today_date] = 0
+        
+    if DAILY_LIMIT_CACHE[today_date] >= 8:
+        log.info(f"🚫 Лимит в 8 объектов на сегодня ({today_date}) исчерпан. Пропускаем.")
+        return
+    # --- КОНЕЦ БЛОКА ЛИМИТА ---
+
+    demo_id = f"parsed_{dt.datetime.now().strftime('%H%M')}"
+    if demo_id in PARSED_CACHE: 
+        return
     PARSED_CACHE.add(demo_id)
     
     title = "2-комнатная квартира, ЖК Времена года"
