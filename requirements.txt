@@ -2,5 +2,3 @@ google-genai
 gspread
 oauth2client
 python-telegram-bot
-fastapi
-uvicorn
