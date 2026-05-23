@@ -74,3 +74,20 @@ def main():
 
 if __name__ == "__main__":
     main()
+from fastapi import FastAPI
+import uvicorn
+import threading
+import os
+
+app = FastAPI()
+
+@app.get("/")
+def health_check():
+    return {"status": "ok"}
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
+# Запускаем сервер в фоновом режиме
+threading.Thread(target=run_web_server, daemon=True).start()
