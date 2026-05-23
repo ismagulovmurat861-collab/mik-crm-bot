@@ -6,10 +6,8 @@ import json
 import re
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 import gspread
-from google import genai
 
 # Настройка логов
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
