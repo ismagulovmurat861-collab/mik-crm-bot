@@ -1,6 +1,4 @@
-google-generativeai>=0.8.0
+python-telegram-bot>=20.0
+google-generativeai
 gspread
 oauth2client
-python-telegram-bot
-fastapi
-uvicorn
