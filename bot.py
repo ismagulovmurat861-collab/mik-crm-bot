@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from google import genai
 from google.genai import types
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google import genai
 
 # Настройка логов
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
