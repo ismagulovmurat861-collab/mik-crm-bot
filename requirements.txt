@@ -1,9 +1,6 @@
+google-genai
+gspread
+oauth2client
+python-telegram-bot
 fastapi
 uvicorn
-python-telegram-bot==21.4
-google-generativeai
-gspread
-google-auth
-requests
-beautifulsoup4
-apscheduler
