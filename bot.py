@@ -2,7 +2,7 @@ import os
 import logging
 import asyncio
 import datetime as dt
-import json
+import json                                      # ← Это было пропущено
 from fastapi import FastAPI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -23,7 +23,7 @@ api_app = FastAPI()
 
 @api_app.get("/")
 def read_root():
-    return {"status": "Bot Running", "time": str(dt.datetime.now())}
+    return {"status": "Bot Running"}
 
 def get_sheet(sheet_name="baza"):
     try:
@@ -31,7 +31,7 @@ def get_sheet(sheet_name="baza"):
         creds = Credentials.from_service_account_info(creds_dict)
         client = gspread.authorize(creds)
         sheet = client.open_by_key(SPREADSHEET_ID).worksheet(sheet_name)
-        log.info(f"✅ Успешно подключено к вкладке: {sheet_name}")
+        log.info(f"✅ Подключено к Google Sheets: {sheet_name}")
         return sheet
     except Exception as e:
         log.error(f"❌ Ошибка Google Sheets: {e}")
@@ -46,29 +46,26 @@ async def test_job():
     if sheet:
         try:
             row = [now_str, "Krisha.kz", "Тестовый объект от бота", "25000000", "₸", 
-                   "https://krisha.kz/test", "Астана", "", "", "", "", "", "Тестовая запись", "Новый"]
+                   "https://krisha.kz", "Астана", "", "", "", "", "", "Тестовая запись", "Новый"]
             sheet.append_row(row)
-            log.info("🎉 УСПЕШНО ЗАПИСАНО В ТАБЛИЦУ!")
+            log.info("🎉 УСПЕШНО ЗАПИСАНО В БАЗУ!")
         except Exception as e:
             log.error(f"Ошибка записи: {e}")
     else:
-        log.error("Не удалось подключиться к Google Таблице")
+        log.error("Не удалось подключиться к таблице")
 
 # ===================== ЗАПУСК =====================
 async def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Запускаем задачу сразу
-    asyncio.create_task(test_job())
-
-    # Повторяем каждые 5 минут
-    for _ in range(6):
-        await asyncio.sleep(300)
+    asyncio.create_task(test_job())           # сразу
+    for _ in range(4):
+        await asyncio.sleep(240)              # каждые 4 минуты
         asyncio.create_task(test_job())
 
-    log.info("🤖 Бот запущен. Тест записи запущен.")
+    log.info("🤖 Бот запущен с тестовыми записями")
 
-    app.add_handler(CommandHandler("start", lambda u, c: u.message.reply_text("Бот работает. Тест запущен.")))
+    app.add_handler(CommandHandler("start", lambda u, c: u.message.reply_text("Бот работает.")))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: u.message.reply_text("Записано.")))
 
     await app.initialize()
