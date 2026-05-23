@@ -1,19 +1,18 @@
 import os
-import json
 import logging
-import threading
-import time
 from telegram.ext import Application, MessageHandler, filters
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from fastapi import FastAPI
 import uvicorn
+import threading
+import google.generativeai as genai
 
-# Настройка логов
+# Настройка
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger(__name__)
+genai.configure(api_key="ВАШ_API_KEY_GEMINI") # Вставь сюда ключ от Gemini, если используешь модель
 
-# Инициализация веб-сервера для Render
+# Веб-сервер для Render (чтобы не убивал порт)
 app = FastAPI()
 @app.get("/")
 def health(): return {"status": "ok"}
@@ -21,36 +20,23 @@ def health(): return {"status": "ok"}
 def run_server():
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
-# ФУНКЦИЯ ЗАПИСИ (Исправлена работа с JSON)
-def save_to_crm(data):
+def save_to_google(row_data):
     try:
-        # Берем JSON из переменной окружения
-        creds_json = os.getenv("GOOGLE_CREDS_JSON")
-        creds_dict = json.loads(creds_json)
-        
+        # Авторизация строго через файл из Secret Files
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_name('service_account.json', scope)
         client = gspread.authorize(creds)
-        
-        # ЗАМЕНИ "Косоланов" НА ТОЧНОЕ ИМЯ ЛИСТА
-        sheet = client.open_by_key(os.getenv("SPREADSHEET_ID")).worksheet("Косоланов")
-        sheet.append_row(data)
-        log.info("УСПЕХ: Запись в базу")
+        sheet = client.open_by_key("ВАШ_ID_ТАБЛИЦЫ").worksheet("Косоланов")
+        sheet.append_row(row_data)
     except Exception as e:
-        log.error(f"ОШИБКА БАЗЫ: {e}")
+        print(f"Ошибка базы: {e}")
 
-# Основная логика
 async def handle_msg(update, context):
-    text = update.message.text
-    # Записываем в базу всё, что пишет клиент
-    save_to_crm([time.ctime(), update.message.from_user.username, text])
-    await update.message.reply_text("Заявка принята!")
+    save_to_google([update.message.text])
+    await update.message.reply_text("Записал в Косоланов!")
 
 if __name__ == "__main__":
-    # Запуск сервера в фоне
     threading.Thread(target=run_server, daemon=True).start()
-    
-    # Запуск бота
-    app = Application.builder().token(os.getenv("BOT_TOKEN")).build()
-    app.add_handler(MessageHandler(filters.TEXT, handle_msg))
-    app.run_polling()
+    app_bot = Application.builder().token("ВАШ_BOT_TOKEN").build()
+    app_bot.add_handler(MessageHandler(filters.TEXT, handle_msg))
+    app_bot.run_polling()
